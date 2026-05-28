@@ -1,0 +1,14 @@
+{
+  "name": "together-alone-packages-sdk",
+  "private": true,
+  "workspaces": [
+    "zombiedelete-core",
+    "zombiedelete",
+    "zombiedelete-server"
+  ],
+  "scripts": {
+    "build": "npm run build -w @together-alone/zombiedelete-core && npm run build -w @together-alone/zombiedelete && npm run build -w @together-alone/zombiedelete-server",
+    "test": "npm run test -w @together-alone/zombiedelete-core && npm run test -w @together-alone/zombiedelete && npm run test -w @together-alone/zombiedelete-server",
+    "typecheck": "npm run typecheck -ws --if-present"
+  }
+}

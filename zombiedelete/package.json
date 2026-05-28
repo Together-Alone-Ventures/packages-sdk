@@ -1,0 +1,48 @@
+{
+  "name": "@together-alone/zombiedelete",
+  "version": "0.1.0",
+  "description": "Browser / React SDK for MKTd03 — connect to the canister, issue deletion receipts, download audit PDFs.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@together-alone/zombiedelete-core": "file:../zombiedelete-core"
+  },
+  "peerDependencies": {
+    "@dfinity/agent": "^3.4.0",
+    "@dfinity/auth-client": "^3.4.0",
+    "@dfinity/candid": "^3.4.0",
+    "@dfinity/identity": "^3.4.0",
+    "@dfinity/principal": "^3.4.0"
+  },
+  "devDependencies": {
+    "@dfinity/agent": "^3.4.3",
+    "@dfinity/auth-client": "^3.4.3",
+    "@dfinity/candid": "^3.4.3",
+    "@dfinity/identity": "^3.4.3",
+    "@dfinity/principal": "^3.4.3",
+    "@together-alone/zombiedelete-core": "file:../zombiedelete-core",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.5"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
