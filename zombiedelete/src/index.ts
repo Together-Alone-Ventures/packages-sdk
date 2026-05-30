@@ -17,6 +17,7 @@ export {
   transitionMaterialFromAttestation,
   auditExtensionsFromSignedAttestation,
   ATTESTATION_EXTENSION_KEYS,
+  validateMktd03DeletionAuditInput,
   sha256,
   receiptSummary,
   hexPreview,

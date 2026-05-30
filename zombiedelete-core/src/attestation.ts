@@ -13,7 +13,17 @@ export const ATTESTATION_EXTENSION_KEYS = {
   signatureHex: 'gd_v1_attestation_sig_hex',
   publicKeyHex: 'gd_v1_attestation_pubkey_hex',
   deletionEventId: 'gd_v1_deletion_event_id',
+  attestationParts: 'gd_v1_attestation_parts',
 } as const;
+
+/** MKTd03 `set_audit_metadata.extensions` limits (audit_record.rs). */
+export const MKTD03_AUDIT_EXTENSION_KEY_MAX = 128;
+export const MKTD03_AUDIT_EXTENSION_VALUE_MAX = 512;
+export const MKTD03_AUDIT_SUBJECT_LABEL_MAX = 512;
+export const MKTD03_AUDIT_LEGAL_CONTEXT_MAX = 2048;
+export const MKTD03_AUDIT_SOURCE_LOCATOR_MAX = 512;
+
+const ATTESTATION_EXTENSION_CHUNK_PREFIX = `${ATTESTATION_EXTENSION_KEYS.attestation}_p`;
 
 /** Deterministic JSON (sorted keys) for cross-language signing. */
 export function canonicalJson(value: unknown): string {
@@ -24,7 +34,9 @@ export function canonicalJson(value: unknown): string {
     return `[${value.map((entry) => canonicalJson(entry)).join(',')}]`;
   }
   const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
+  const keys = Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort();
   return `{${keys
     .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
     .join(',')}}`;
@@ -167,14 +179,138 @@ export async function signBackendDeletionAttestation(
   };
 }
 
+/** Hex-encode attestation bytes so MKTd03 metadata PII filters do not reject JSON/UUID shapes. */
+export function attestationAuditExtensionHex(
+  attestation: BackendDeletionAttestationV1
+): string {
+  return bytesToHex(attestationCanonicalBytes(attestation));
+}
+
+export function deletionEventIdAuditExtensionValue(deletionEventId: string): string {
+  return deletionEventId.trim().replace(/-/g, '');
+}
+
+function rejectIfMktd03Oversized(value: string, max: number, label: string): void {
+  if (value.length > max) {
+    throw new Error(`${label} exceeds MKTd03 limit (${value.length} > ${max} chars)`);
+  }
+}
+
+function rejectIfMktd03PiiPattern(value: string, label: string): void {
+  const lower = value.toLowerCase();
+  if (lower.includes('@') && lower.includes('.')) {
+    throw new Error(`${label} matches an email-like pattern rejected by MKTd03 audit metadata`);
+  }
+  const digits = [...lower].filter((c) => c >= '0' && c <= '9').length;
+  if (
+    (digits >= 10 && lower.includes('+')) ||
+    (digits >= 10 && [...lower].some((c) => c === '-' || c === ' '))
+  ) {
+    throw new Error(`${label} matches a phone-like pattern rejected by MKTd03 audit metadata`);
+  }
+  const digitRun = [...lower].filter((c) => c >= '0' && c <= '9').join('');
+  if (digitRun.length === 9) {
+    throw new Error(`${label} matches an SSN-like pattern rejected by MKTd03 audit metadata`);
+  }
+}
+
+/** Validate extension tuples before `set_audit_metadata` (fail fast, before on-chain begin). */
+export function validateMktd03AuditExtensions(
+  extensions: Array<[string, string]>
+): void {
+  for (const [key, value] of extensions) {
+    rejectIfMktd03Oversized(key, MKTD03_AUDIT_EXTENSION_KEY_MAX, `Audit extension key "${key}"`);
+    rejectIfMktd03Oversized(
+      value,
+      MKTD03_AUDIT_EXTENSION_VALUE_MAX,
+      `Audit extension "${key}"`
+    );
+    rejectIfMktd03PiiPattern(key, `Audit extension key "${key}"`);
+    rejectIfMktd03PiiPattern(value, `Audit extension "${key}"`);
+  }
+}
+
+export function validateMktd03DeletionAuditInput(input: {
+  subjectLabel?: string;
+  legalContext?: string;
+  sourceLocator?: string;
+  extensions?: Array<[string, string]>;
+}): void {
+  if (input.subjectLabel?.trim()) {
+    rejectIfMktd03Oversized(
+      input.subjectLabel,
+      MKTD03_AUDIT_SUBJECT_LABEL_MAX,
+      'Audit subject label'
+    );
+    rejectIfMktd03PiiPattern(input.subjectLabel, 'Audit subject label');
+  }
+  if (input.legalContext?.trim()) {
+    rejectIfMktd03Oversized(
+      input.legalContext,
+      MKTD03_AUDIT_LEGAL_CONTEXT_MAX,
+      'Audit legal context'
+    );
+    rejectIfMktd03PiiPattern(input.legalContext, 'Audit legal context');
+  }
+  if (input.sourceLocator?.trim()) {
+    rejectIfMktd03Oversized(
+      input.sourceLocator,
+      MKTD03_AUDIT_SOURCE_LOCATOR_MAX,
+      'Audit source locator'
+    );
+    rejectIfMktd03PiiPattern(input.sourceLocator, 'Audit source locator');
+  }
+  if (input.extensions?.length) {
+    validateMktd03AuditExtensions(input.extensions);
+  }
+}
+
+export function attestationHexExtensionEntries(hex: string): Array<[string, string]> {
+  if (hex.length <= MKTD03_AUDIT_EXTENSION_VALUE_MAX) {
+    return [[ATTESTATION_EXTENSION_KEYS.attestation, hex]];
+  }
+  const chunks: Array<[string, string]> = [];
+  for (let offset = 0; offset < hex.length; offset += MKTD03_AUDIT_EXTENSION_VALUE_MAX) {
+    chunks.push([
+      `${ATTESTATION_EXTENSION_CHUNK_PREFIX}${chunks.length}`,
+      hex.slice(offset, offset + MKTD03_AUDIT_EXTENSION_VALUE_MAX),
+    ]);
+  }
+  chunks.push([ATTESTATION_EXTENSION_KEYS.attestationParts, String(chunks.length)]);
+  return chunks;
+}
+
+/** Reassemble chunked attestation hex stored in MKTd03 audit extensions. */
+export function joinAttestationHexExtensionEntries(
+  extensions: Array<[string, string]>
+): string | null {
+  const single = extensions.find(([k]) => k === ATTESTATION_EXTENSION_KEYS.attestation)?.[1];
+  if (single) return single;
+  const partCount = Number(
+    extensions.find(([k]) => k === ATTESTATION_EXTENSION_KEYS.attestationParts)?.[1] ?? '0'
+  );
+  if (!Number.isFinite(partCount) || partCount <= 0) return null;
+  let hex = '';
+  for (let i = 0; i < partCount; i += 1) {
+    const part = extensions.find(([k]) => k === `${ATTESTATION_EXTENSION_CHUNK_PREFIX}${i}`)?.[1];
+    if (!part) return null;
+    hex += part;
+  }
+  return hex;
+}
+
 export function auditExtensionsFromSignedAttestation(
   signed: SignedBackendDeletionAttestationV1
 ): Array<[string, string]> {
+  const hex = attestationAuditExtensionHex(signed.attestation);
   return [
-    [ATTESTATION_EXTENSION_KEYS.attestation, canonicalJson(signed.attestation)],
+    ...attestationHexExtensionEntries(hex),
     [ATTESTATION_EXTENSION_KEYS.signatureHex, signed.signatureHex],
     [ATTESTATION_EXTENSION_KEYS.publicKeyHex, signed.signerPublicKeyHex],
-    [ATTESTATION_EXTENSION_KEYS.deletionEventId, signed.attestation.deletionEventId],
+    [
+      ATTESTATION_EXTENSION_KEYS.deletionEventId,
+      deletionEventIdAuditExtensionValue(signed.attestation.deletionEventId),
+    ],
   ];
 }
 
@@ -188,16 +324,21 @@ export async function buildBackendDeletionAttestation(input: {
   dbEngine?: string;
   dbTransactionId?: string;
 }): Promise<BackendDeletionAttestationV1> {
-  return {
+  const attestation: BackendDeletionAttestationV1 = {
     v: 1,
     subjectReferenceHex: bytesToHex(input.subjectReference),
     deletionEventId: input.deletionEventId.trim(),
     deletedAtUnixMs: input.deletedAtUnixMs ?? Date.now(),
-    sourceSystem: input.sourceSystem?.trim() || undefined,
-    sourceLocator: input.sourceLocator?.trim() || undefined,
-    dbEngine: input.dbEngine?.trim() || undefined,
-    dbTransactionId: input.dbTransactionId?.trim() || undefined,
   };
+  const sourceSystem = input.sourceSystem?.trim();
+  if (sourceSystem) attestation.sourceSystem = sourceSystem;
+  const sourceLocator = input.sourceLocator?.trim();
+  if (sourceLocator) attestation.sourceLocator = sourceLocator;
+  const dbEngine = input.dbEngine?.trim();
+  if (dbEngine) attestation.dbEngine = dbEngine;
+  const dbTransactionId = input.dbTransactionId?.trim();
+  if (dbTransactionId) attestation.dbTransactionId = dbTransactionId;
+  return attestation;
 }
 
 /** Verify attestation + recompute transition_material (for auditors / tooling). */

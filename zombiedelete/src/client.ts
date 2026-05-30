@@ -7,6 +7,7 @@ import {
   issuanceErrorLabel,
   TOMBSTONE_DELETION_STATE,
   transitionMaterialFromAttestation,
+  validateMktd03DeletionAuditInput,
   variantKey,
   verifySignedBackendAttestation,
 } from '@together-alone/zombiedelete-core';
@@ -221,6 +222,10 @@ export class ZombieDeleteClient {
     const scope = params.scopeReference
       ? ([params.scopeReference] as [Uint8Array])
       : ([] as []);
+
+    if (params.audit) {
+      validateMktd03DeletionAuditInput(params.audit);
+    }
 
     params.onProgress?.({ step: 'begin', message: 'Starting tree receipt issuance on-chain…' });
     const beginResult = await this.actor.begin_tree_receipt_issuance({

@@ -9,6 +9,8 @@ export {
   signBackendDeletionAttestation,
   transitionMaterialFromAttestation,
   validateBackendDeletionAttestation,
+  validateMktd03AuditExtensions,
+  validateMktd03DeletionAuditInput,
   verifyAttestationChain,
   verifySignedBackendAttestation,
 } from './attestation.js';

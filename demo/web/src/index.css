@@ -1,0 +1,278 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply min-h-screen text-slate-100;
+    background-color: #0c0618;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(255, 45, 122, 0.18), transparent),
+      radial-gradient(ellipse 60% 40% at 100% 50%, rgba(92, 225, 255, 0.08), transparent),
+      radial-gradient(ellipse 50% 30% at 0% 80%, rgba(255, 45, 122, 0.06), transparent);
+  }
+}
+
+@layer components {
+  .demo-panel {
+    @apply rounded-2xl border border-white/10 bg-panel/90 p-5 shadow-xl shadow-black/40 backdrop-blur-sm;
+  }
+  .demo-btn {
+    @apply inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45;
+  }
+  .demo-btn-primary {
+    @apply demo-btn bg-accent text-white hover:brightness-110 shadow-lg shadow-accent/20;
+  }
+  .demo-btn-danger {
+    @apply demo-btn border border-danger/40 bg-danger/10 text-danger hover:bg-danger/20;
+  }
+  .demo-btn-ghost {
+    @apply demo-btn border border-white/15 bg-white/5 hover:bg-white/10;
+  }
+  .event-strip {
+    @apply rounded-2xl border border-accent/25 px-4 py-3;
+    background: linear-gradient(
+      90deg,
+      rgb(255 45 122 / 0.15) 0%,
+      #160d24 50%,
+      rgb(92 225 255 / 0.1) 100%
+    );
+  }
+
+  .db-modal-overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm;
+  }
+  .db-modal-panel {
+    @apply flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-slate-600 bg-[#f5f5f5] text-slate-900 shadow-2xl;
+  }
+  .db-modal-toolbar {
+    @apply flex flex-wrap items-start justify-between gap-3 border-b border-slate-300 bg-[#e8e8e8] px-4 py-3;
+  }
+  .db-modal-breadcrumb {
+    @apply font-mono text-[11px] text-slate-600;
+  }
+  .db-modal-title {
+    @apply mt-1 text-lg font-semibold text-slate-800;
+  }
+  .db-modal-badge {
+    @apply rounded border border-slate-400 bg-white px-2 py-1 font-mono text-xs text-slate-700;
+  }
+  .db-modal-tabs {
+    @apply flex gap-1 border-b border-slate-300 bg-[#efefef] px-2 pt-2;
+  }
+  .db-modal-tab {
+    @apply rounded-t px-3 py-1.5 text-xs text-slate-600;
+  }
+  .db-modal-tab--active {
+    @apply border border-b-0 border-slate-300 bg-[#f5f5f5] font-semibold text-slate-800;
+  }
+  .db-table-wrap {
+    @apply flex-1 overflow-auto bg-white;
+  }
+  .db-table {
+    @apply w-full border-collapse font-mono text-[11px];
+  }
+  .db-table thead {
+    @apply sticky top-0 z-10 bg-[#d3dce3];
+  }
+  .db-table th {
+    @apply border border-slate-300 px-2 py-1.5 text-left font-bold text-slate-800 whitespace-nowrap;
+  }
+  .db-table td {
+    @apply border border-slate-200 px-2 py-1 text-slate-800 whitespace-nowrap;
+  }
+  .db-th-wide,
+  .db-td-wide {
+    @apply min-w-[10rem];
+  }
+  .db-row-even {
+    @apply bg-white;
+  }
+  .db-row-odd {
+    @apply bg-[#f8f8f8];
+  }
+  .db-empty {
+    @apply px-4 py-8 text-center text-slate-500 italic;
+  }
+  .db-modal-footer {
+    @apply border-t border-slate-300 bg-[#efefef] px-4 py-2.5 text-xs;
+  }
+  .db-modal-panel .demo-btn-ghost {
+    @apply border-slate-400 bg-white text-slate-800 hover:bg-slate-100;
+  }
+  .db-modal-footer .text-amber-300\/90 {
+    @apply text-amber-800;
+  }
+
+  .db-engine-bar {
+    @apply flex flex-wrap items-center justify-between gap-3 border-b border-slate-400 bg-[#2c2c2c] px-3 py-2;
+  }
+  .db-engine-tabs {
+    @apply flex flex-wrap gap-1;
+  }
+  .db-engine-tab {
+    @apply rounded-md border border-transparent px-3 py-1.5 text-left transition;
+  }
+  .db-engine-tab--active {
+    @apply border-slate-500 bg-[#454545] shadow-sm;
+  }
+  .db-engine-tab-label {
+    @apply block text-xs font-semibold text-white;
+  }
+  .db-engine-tab-sub {
+    @apply block text-[10px] text-slate-400;
+  }
+  .db-modal-panel--mongo {
+    @apply border-[#00684a]/60 bg-[#001e2b] text-[#e3fcef];
+  }
+  .db-modal-panel--pg {
+    @apply border-[#336791]/50 bg-[#f0f4f8] text-slate-900;
+  }
+  .db-modal-panel--mongo .db-engine-bar,
+  .db-modal-panel--pg .db-engine-bar {
+    @apply border-b border-black/20;
+  }
+  .db-modal-panel--mongo .demo-btn-ghost {
+    @apply border-[#13aa52]/40 bg-[#003d4d] text-[#e3fcef] hover:bg-[#004d5f];
+  }
+  .db-modal-panel--pg .demo-btn-ghost {
+    @apply border-[#336791]/40 bg-white text-slate-800 hover:bg-slate-100;
+  }
+
+  /* PostgreSQL (pgAdmin-style) */
+  .pg-toolbar {
+    @apply flex flex-wrap items-start justify-between gap-3 border-b border-[#336791]/30 bg-[#dbe4ec] px-4 py-3;
+  }
+  .pg-breadcrumb {
+    @apply font-mono text-[11px] text-slate-600;
+  }
+  .pg-breadcrumb span {
+    @apply font-semibold text-[#336791];
+  }
+  .pg-title {
+    @apply mt-1 text-lg font-semibold text-slate-800;
+  }
+  .pg-badge {
+    @apply rounded border border-[#336791]/30 bg-white px-2 py-1 font-mono text-xs text-[#336791];
+  }
+  .pg-tabs {
+    @apply flex gap-1 border-b border-[#336791]/20 bg-[#c5d4e3] px-2 pt-2;
+  }
+  .pg-tab {
+    @apply rounded-t px-3 py-1.5 text-xs text-slate-600;
+  }
+  .pg-tab--active {
+    @apply border border-b-0 border-[#336791]/25 bg-[#f0f4f8] font-semibold text-[#336791];
+  }
+  .pg-table-wrap {
+    @apply flex-1 overflow-auto bg-white;
+  }
+  .pg-table {
+    @apply w-full border-collapse font-mono text-[11px];
+  }
+  .pg-table thead {
+    @apply sticky top-0 z-10;
+  }
+  .pg-head-names th {
+    @apply border border-[#336791]/20 bg-[#336791] px-2 py-1.5 text-left font-bold text-white whitespace-nowrap;
+  }
+  .pg-head-types th {
+    @apply border border-[#336791]/15 bg-[#5a8bb5] px-2 py-0.5 text-left text-[10px] font-normal text-white/90 whitespace-nowrap;
+  }
+  .pg-table td {
+    @apply border border-slate-200 px-2 py-1 text-slate-800 whitespace-nowrap;
+  }
+  .pg-th-wide,
+  .pg-td-wide {
+    @apply min-w-[10rem];
+  }
+  .pg-row-even {
+    @apply bg-white;
+  }
+  .pg-row-odd {
+    @apply bg-[#f7fafc];
+  }
+  .pg-empty {
+    @apply px-4 py-8 text-center text-slate-500 italic;
+  }
+  .pg-modal-footer {
+    @apply border-t border-[#336791]/20 bg-[#dbe4ec] px-4 py-2.5 text-xs text-slate-600;
+  }
+  .pg-modal-footer .text-amber-300\/90 {
+    @apply text-amber-900;
+  }
+
+  /* MongoDB (Compass-style) */
+  .mongo-toolbar {
+    @apply flex flex-wrap items-start justify-between gap-3 border-b border-[#00684a]/40 bg-[#003d4d] px-4 py-3;
+  }
+  .mongo-breadcrumb {
+    @apply font-mono text-[11px] text-[#9bbfb3];
+  }
+  .mongo-breadcrumb span {
+    @apply text-[#13aa52];
+  }
+  .mongo-title {
+    @apply mt-1 text-lg font-semibold text-[#e3fcef];
+  }
+  .mongo-badge {
+    @apply rounded border border-[#13aa52]/40 bg-[#001e2b] px-2 py-1 font-mono text-xs text-[#13aa52];
+  }
+  .mongo-body {
+    @apply flex min-h-0 flex-1 overflow-hidden;
+  }
+  .mongo-sidebar {
+    @apply w-52 shrink-0 overflow-y-auto border-r border-[#00684a]/40 bg-[#001e2b] p-2;
+  }
+  .mongo-sidebar-label {
+    @apply px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[#13aa52];
+  }
+  .mongo-collection-list {
+    @apply mt-1 space-y-0.5;
+  }
+  .mongo-collection-btn {
+    @apply flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-[#b8cfc8] transition hover:bg-[#003d4d];
+  }
+  .mongo-collection-btn--active {
+    @apply bg-[#003d4d] text-[#e3fcef];
+  }
+  .mongo-collection-icon {
+    @apply font-mono text-[#13aa52];
+  }
+  .mongo-collection-name {
+    @apply flex-1 truncate;
+  }
+  .mongo-collection-count {
+    @apply rounded bg-[#00684a]/30 px-1.5 py-0.5 font-mono text-[10px] text-[#13aa52];
+  }
+  .mongo-docs {
+    @apply min-w-0 flex-1 overflow-y-auto bg-[#0a2936] p-3;
+  }
+  .mongo-docs-header {
+    @apply mb-3 font-mono text-xs text-[#9bbfb3];
+  }
+  .mongo-doc-list {
+    @apply space-y-3;
+  }
+  .mongo-doc-card {
+    @apply rounded border border-[#00684a]/35 bg-[#001e2b] p-3;
+  }
+  .mongo-doc-id {
+    @apply font-mono text-[11px] text-[#13aa52];
+  }
+  .mongo-doc-json {
+    @apply mt-2 overflow-x-auto font-mono text-[11px] leading-relaxed text-[#e3fcef];
+  }
+  .mongo-empty {
+    @apply py-8 text-center text-sm italic text-[#9bbfb3];
+  }
+  .mongo-modal-footer {
+    @apply border-t border-[#00684a]/40 bg-[#003d4d] px-4 py-2.5 text-xs text-[#9bbfb3];
+  }
+  .mongo-modal-footer .text-amber-300\/90 {
+    @apply text-amber-300;
+  }
+  .mongo-modal-footer .text-slate-500 {
+    @apply text-[#9bbfb3];
+  }
+}

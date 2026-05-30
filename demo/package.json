@@ -1,0 +1,11 @@
+{
+  "name": "goneproof-demo",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:api": "npm run dev -w goneproof-demo-api",
+    "dev:web": "npm run dev -w goneproof-demo-web",
+    "typecheck": "npm run typecheck -w goneproof-demo-api && npm run typecheck -w goneproof-demo-web",
+    "build": "npm run build -w goneproof-demo-web"
+  }
+}
