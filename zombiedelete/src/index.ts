@@ -1,6 +1,22 @@
 export { ZombieDeleteClient, type Mktd03Actor, type ZombieDeleteConnectOptions } from './client.js';
 export { buildAuditorToken, downloadPdfBytes } from './audit.js';
 export { mktd03IdlFactory } from './idl.js';
+export { preflightCommercial, assertCommercialPreflight } from './preflightCommercial.js';
+export { guardRestoreAgainstMktd03, type GuardRestoreAgainstMktd03Params } from './restoreGuard.js';
+export {
+  checkDeclaredDeletionInDatabase,
+  createDatabaseVerifier,
+  createMongoVerifier,
+  createMysqlVerifier,
+  createPostgresVerifier,
+  createWiredDeletionVerifier,
+  offsign,
+  type DatabaseVerifier,
+  type OffsignInput,
+  type WiredDeletionProps,
+} from '@together-alone/zombiedelete-server';
+export type { AllowanceStatusView, SecurityStatusView } from './commercial.js';
+export type { RestoreGuardPolicy } from '@together-alone/zombiedelete-core';
 export {
   createSigningSession,
   formatControllerRejectError,
@@ -25,6 +41,7 @@ export {
   issuanceErrorLabel,
   auditErrorLabel,
   TOMBSTONE_DELETION_STATE,
+  OffSignCommercialError,
 } from '@together-alone/zombiedelete-core';
 
 export type {
@@ -36,4 +53,7 @@ export type {
   Receipt,
   ReceiptLookup,
   SignedBackendDeletionAttestationV1,
+  RestoreGuardResult,
+  SecurityPreflightResult,
+  OffSignCommercialErrorCode,
 } from './types.js';

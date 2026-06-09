@@ -26,6 +26,8 @@ import type {
   Receipt,
   ReceiptLookup,
 } from './types.js';
+import { assertCommercialPreflight, preflightCommercial } from './preflightCommercial.js';
+import { queryAllowanceStatus, querySecurityStatus } from './commercial.js';
 
 export type Mktd03Actor = ActorSubclass<{
   get_tree_mode_status: () => Promise<{
@@ -64,6 +66,8 @@ export type Mktd03Actor = ActorSubclass<{
     subjectReference: Uint8Array | number[],
     token: Uint8Array | number[]
   ) => Promise<Record<string, unknown>>;
+  get_allowance_status: () => Promise<Record<string, unknown>>;
+  get_security_status: () => Promise<Record<string, unknown>>;
 }>;
 
 export type ZombieDeleteConnectOptions = {
@@ -218,6 +222,18 @@ export class ZombieDeleteClient {
     return parseReceiptLookup(result as Record<string, unknown>);
   }
 
+  async preflightCommercial() {
+    return preflightCommercial(this.actor);
+  }
+
+  async getAllowanceStatus() {
+    return queryAllowanceStatus(this.actor);
+  }
+
+  async getSecurityStatus() {
+    return querySecurityStatus(this.actor);
+  }
+
   async issueDeletionReceipt(params: IssueDeletionReceiptParams): Promise<Receipt> {
     const scope = params.scopeReference
       ? ([params.scopeReference] as [Uint8Array])
@@ -279,6 +295,14 @@ export class ZombieDeleteClient {
   async issueAttestedDeletionReceipt(
     params: IssueAttestedDeletionReceiptParams
   ): Promise<Receipt> {
+    if (!params.skipPreflight) {
+      params.onProgress?.({
+        step: 'begin',
+        message: 'Checking commercial allowance and security surface…',
+      });
+      await assertCommercialPreflight(this.actor);
+    }
+
     const attestation = await verifySignedBackendAttestation(params.signedAttestation, {
       trustedPublicKeyHex: params.trustedBackendPublicKeyHex,
       maxAgeMs: params.maxAttestationAgeMs,

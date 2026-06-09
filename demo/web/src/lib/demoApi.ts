@@ -17,7 +17,9 @@ export type DeleteRecordResult = {
   ok: true;
   engine: DbEngine;
   recordKey: string;
-  goneproof: import('@together-alone/zombiedelete').SignedBackendDeletionAttestationV1;
+  offsign: import('@together-alone/zombiedelete').SignedBackendDeletionAttestationV1;
+  /** @deprecated use `offsign` */
+  goneproof?: import('@together-alone/zombiedelete').SignedBackendDeletionAttestationV1;
   backendPublicKeyHex: string;
 };
 
@@ -94,6 +96,52 @@ export async function deleteRecordViaApi(
       method: 'DELETE',
     })
   );
+}
+
+export type DeclaredDeletionCheckResult = {
+  ok: boolean;
+  absent: boolean;
+  attestationVerified: boolean;
+  detail?: string;
+};
+
+export async function checkDeclaredDeletionViaApi(params: {
+  engine: DbEngine;
+  recordKey: string;
+  signedAttestation: DeleteRecordResult['offsign'];
+  receipt?: import('@together-alone/zombiedelete').Receipt;
+}): Promise<DeclaredDeletionCheckResult> {
+  const data = await parseJson<{ ok: true; check: DeclaredDeletionCheckResult }>(
+    await fetch(`${API_BASE}/api/check-declared-deletion`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        engine: params.engine,
+        recordKey: params.recordKey,
+        signedAttestation: params.signedAttestation,
+        receipt: params.receipt,
+      }),
+    })
+  );
+  return data.check;
+}
+
+export async function restoreRecordViaApi(
+  engine: DbEngine,
+  recordKey: string
+): Promise<{ ok: true } | { ok: false; error: string; message?: string }> {
+  const res = await fetch(
+    `${API_BASE}/api/${engine}/records/${encodeURIComponent(recordKey)}/restore`,
+    { method: 'POST' }
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      message?: string;
+    };
+    return { ok: false, error: body.error ?? 'restore_failed', message: body.message };
+  }
+  return parseJson(await res);
 }
 
 export async function resetDemoDatabases(): Promise<void> {

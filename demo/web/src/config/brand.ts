@@ -13,9 +13,9 @@ export const EVENT = {
 
 export const BRAND = {
   name: 'TOGETHER ALONE VENTURES',
-  tagline: 'Erase attendee data. Prove it on-chain.',
+  tagline: 'Erase attendee data. Record a signed declaration on-chain.',
   description:
-    'Conference ops demo: a visitor asks to be forgotten after Infoshare. You delete their badge, matchmaking, and expo lead data, then show a cryptographic receipt auditors can verify without trusting your database.',
-  poweredBy: 'Zombie Delete · MKTd03 · Internet Computer',
+    'Conference ops demo (OffSign): after Infoshare you DELETE badge and lead data in Web2, your API signs a structured attestation, then MKTd03 records a tombstone receipt auditors can verify — they still trust your backend for the database state.',
+  poweredBy: 'OffSign SDK · MKTd03 · Internet Computer',
   demoContext: 'Privacy booth scenario · Infoshare 2026',
 } as const;

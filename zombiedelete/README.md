@@ -1,29 +1,51 @@
 # @together-alone/zombiedelete
 
-SDK **front** (React, Vue, Angular) : connexion au canister MKTd03, émission de reçus CVDR, PDF d’audit, vérification des attestations backend.
+SDK **front** (React, Vue, Angular) : connexion MKTd03, preflight commercial, émission de **reçus de déclaration backend-attestée**, PDF d’audit, garde restore.
 
-Pour l’**API Node du client** (signer après DELETE en BDD) → `@together-alone/zombiedelete-server`.
+Pour signer après DELETE en BDD → `@together-alone/zombiedelete-server` (`offsign`).
 
 ## Installation (React / Vite)
 
 ```bash
 npm install @together-alone/zombiedelete @dfinity/agent @dfinity/identity @dfinity/principal @dfinity/candid
-# Internet Identity en dev/prod navigateur :
-npm install @dfinity/auth-client
+npm install @dfinity/auth-client  # Internet Identity
 ```
 
 ## Usage
 
 ```ts
-import { ZombieDeleteClient, sha256 } from '@together-alone/zombiedelete';
+import { ZombieDeleteClient } from '@together-alone/zombiedelete';
 
 const client = await ZombieDeleteClient.connect({ /* … */ });
 
-// Après DELETE API client + payload `goneproof` signé côté server :
+// Après DELETE API + payload `offsign` signé côté server :
 await client.issueAttestedDeletionReceipt({
-  signedAttestation: goneproof,
+  signedAttestation: offsign,
   trustedBackendPublicKeyHex: CLIENT_BACKEND_PUBKEY_HEX,
 });
+// preflight commercial automatique (skipPreflight pour tests)
+```
+
+## Garde restore (C9)
+
+```ts
+import { guardRestoreAgainstMktd03 } from '@together-alone/zombiedelete';
+
+const guard = await guardRestoreAgainstMktd03({
+  subjectReference,
+  client,
+  policy: { failClosedOnLookupError: true },
+});
+if (!guard.allowed) throw new Error('Restore blocked — subject tombstoned on-chain');
+```
+
+## Preflight commercial
+
+```ts
+const preflight = await client.preflightCommercial();
+if (!preflight.ok) {
+  // exhausted | clone_detected | awaiting_first_injection | …
+}
 ```
 
 ## Packages du monorepo
@@ -37,7 +59,5 @@ await client.issueAttestedDeletionReceipt({
 ## Build & tests
 
 ```bash
-cd packages/zombiedelete-core && npm run build && npm test
-cd packages/zombiedelete && npm run build && npm test
-cd packages/zombiedelete-server && npm run build && npm test
+npm run build && npm run test
 ```

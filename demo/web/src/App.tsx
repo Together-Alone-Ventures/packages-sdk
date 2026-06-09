@@ -8,13 +8,14 @@ import {
   formatIssuanceAgentError,
   getActiveSignerPrincipalText,
   getIcHost,
+  guardDemoRestore,
   issueDemoAttestedDeletionReceipt,
   receiptSummary,
   signingModeLabel,
   tryReissueDemoDeletion,
   type IssuanceProgress,
 } from './lib/zombiedeleteConnect';
-import { deleteRecordViaApi, fetchAllEngineSnapshots, resetDemoDatabases } from './lib/demoApi';
+import { deleteRecordViaApi, checkDeclaredDeletionViaApi, fetchAllEngineSnapshots, resetDemoDatabases, restoreRecordViaApi } from './lib/demoApi';
 import { loadErasureState, saveErasureState } from './lib/erasurePersistence';
 import type { Receipt, RecordUiState } from './lib/types';
 import { BRAND } from './config/brand';
@@ -209,7 +210,7 @@ export default function App() {
   const connect = useCallback(async () => {
     const id = canisterId.trim();
     if (!id) {
-      pushLog('err', 'Enter your proof vault canister id.');
+      pushLog('err', 'Enter your MKTd03 canister id.');
       return;
     }
     setConnecting(true);
@@ -278,21 +279,44 @@ export default function App() {
       await refreshDbSnapshot();
       pushLog('ok', `Row removed from local ${dataEngine} database.`);
 
+      const attestation = deleteResult.offsign ?? deleteResult.goneproof;
+      if (!attestation) {
+        throw new Error('Demo API did not return offsign attestation');
+      }
       const receipt = await issueDemoAttestedDeletionReceipt(
         client,
-        deleteResult.goneproof,
+        attestation,
         setProgress,
         {
           subjectLabel: selectedLabel.replace(/\u00b7/g, ' - '),
           dataCategory: dataEngine,
           sourceSystem: 'Infoshare booth demo',
-          legalContext: 'GDPR Art. 17 - demo',
+          legalContext: 'GDPR Art. 17 - demo (backend-attested declaration)',
         },
         deleteResult.backendPublicKeyHex
       );
+
+      const dbCheck = await checkDeclaredDeletionViaApi({
+        engine: dataEngine,
+        recordKey: selectedId,
+        signedAttestation: attestation,
+        receipt,
+      });
+      if (dbCheck.ok) {
+        pushLog('ok', 'Post-receipt DB reconciliation: declaration matches absent row.');
+      } else {
+        pushLog(
+          'err',
+          `Post-receipt DB check failed: ${dbCheck.detail ?? 'declaration vs database mismatch'}`
+        );
+      }
+
       patchEngineRecord(dataEngine, selectedId, { ui: 'deleted', receipt });
       const sum = receiptSummary(receipt);
-      pushLog('ok', `CVDR issued for ${selectedLabel} (${dataEngine}). Post-state ${sum.postHex}`);
+      pushLog(
+        'ok',
+        `Backend-attested receipt issued for ${selectedLabel} (${dataEngine}). Tombstone ${sum.postHex}`
+      );
     } catch (e) {
       let msg = formatIssuanceAgentError(client, e, canisterId);
       if (msg.includes('Audit metadata rejected')) {
@@ -325,6 +349,16 @@ export default function App() {
     setBusy(true);
     setReissueMessage(null);
     try {
+      const guardMsg = await guardDemoRestore(client, selectedId);
+      if (guardMsg) {
+        setReissueMessage(guardMsg);
+        pushLog('info', guardMsg);
+        const apiRestore = await restoreRecordViaApi(dataEngine, selectedId);
+        if (!apiRestore.ok) {
+          pushLog('info', `API restore also blocked: ${apiRestore.message ?? apiRestore.error}`);
+        }
+        return;
+      }
       const msg = await tryReissueDemoDeletion(client, selectedId);
       setReissueMessage(msg);
       pushLog('info', `Re-add blocked (${dataEngine}): ${msg}`);
@@ -360,11 +394,13 @@ export default function App() {
       </header>
 
       <section className="demo-panel mb-6">
-        <h2 className="text-sm font-semibold text-slate-300">On-chain proof vault</h2>
+        <h2 className="text-sm font-semibold text-slate-300">MKTd03 canister (client-hosted)</h2>
         <p className="mt-1 text-xs text-slate-500">
           Paste any MKTd03 canister id (local dfx or mainnet), then Connect. Connecting a{' '}
-          <strong>different</strong> canister resets the demo backend to fresh seed data. Proofs
-          are saved per canister in this browser.
+          <strong>different</strong> canister resets the demo backend to fresh seed data. Receipts
+          are saved per canister in this browser. This demo issues a{' '}
+          <strong>backend-attested deletion receipt</strong> — not a trustless proof that Postgres
+          was wiped.
         </p>
         <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
           <label className="flex-1 text-sm">
@@ -457,7 +493,7 @@ export default function App() {
                   active={busy || selectedUi === 'checking'}
                 >
                   {progress?.message ??
-                    'DELETE on demo API (signed backend attestation), then issue CVDR on MKTd03.'}
+                    'DELETE via API (OffSign + DB check), preflight allowance, then backend-attested receipt on MKTd03.'}
                 </Step>
                 <Step
                   n={3}
@@ -476,7 +512,7 @@ export default function App() {
                   disabled={!connected || !canIssueProof || busy}
                   onClick={() => void proveDeletion()}
                 >
-                  {busy ? 'Issuing proof…' : 'Erase & issue proof'}
+                  {busy ? 'Issuing receipt…' : 'Erase & issue receipt'}
                 </button>
                 <button
                   type="button"

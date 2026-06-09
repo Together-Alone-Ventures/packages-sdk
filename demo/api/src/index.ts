@@ -3,13 +3,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Ed25519KeyIdentity } from '@dfinity/identity';
 import {
-  buildGoneproofDeletePayload,
+  checkDeclaredDeletionInDatabase,
+  offsign,
   sha256,
 } from '@together-alone/zombiedelete-server';
 import cors from 'cors';
 import express from 'express';
 import type { DbEngine } from '../../shared/dbEngine.js';
-import { deleteRecord, listRecords, resetAll } from './store.js';
+import { deleteRecord, listRecords, resetAll, restoreRecord } from './store.js';
+import {
+  clearDeletionRegistry,
+  isRegisteredForRestore,
+  registerDeletion,
+} from './deletionRegistry.js';
+import { createDemoWiredConnection } from './verifyDeletion.js';
 
 const DEMO_SUBJECT_PREFIX = 'infoshare-demo:';
 const PORT = Number(process.env.DEMO_API_PORT ?? 8787);
@@ -38,7 +45,7 @@ function parseEngine(value: string): DbEngine | null {
 }
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'goneproof-demo-api' });
+  res.json({ ok: true, service: 'offsign-demo-api' });
 });
 
 app.get('/api/config', (_req, res) => {
@@ -72,31 +79,95 @@ app.delete('/api/:engine/records/:recordKey', async (req, res) => {
   }
 
   const subjectReference = await sha256(`${DEMO_SUBJECT_PREFIX}${recordKey}`);
+  const subjectReferenceHex = Buffer.from(subjectReference).toString('hex');
   const deletedAtUnixMs = Date.now();
-  const goneproof = await buildGoneproofDeletePayload({
+
+  const offsignPayload = await offsign({
     identity: backendIdentity,
     subjectReference,
     deletionEventId: crypto.randomUUID(),
     deletedAtUnixMs,
     sourceSystem: 'Infoshare booth demo API',
-    dbEngine: engine,
+    sourceLocator: `${engine}/${recordKey}`,
+    connection: createDemoWiredConnection(engine, recordKey),
+    databaseType: engine,
+    tableOrCollection: `${engine}_records`,
+    data: { keyField: 'record_key', keyValue: recordKey },
   });
+
+  registerDeletion(engine, recordKey, subjectReferenceHex);
 
   res.json({
     ok: true,
     engine,
     recordKey,
-    goneproof,
+    offsign: offsignPayload,
+    /** @deprecated use `offsign` */
+    goneproof: offsignPayload,
     backendPublicKeyHex,
   });
 });
 
+app.post('/api/check-declared-deletion', async (req, res) => {
+  const { signedAttestation, engine, recordKey, receipt } = req.body as {
+    signedAttestation?: Parameters<typeof checkDeclaredDeletionInDatabase>[0]['signedAttestation'];
+    engine?: DbEngine;
+    recordKey?: string;
+    receipt?: Parameters<typeof checkDeclaredDeletionInDatabase>[0]['receipt'];
+  };
+  if (!signedAttestation || !engine || !recordKey) {
+    res.status(400).json({ ok: false, error: 'missing_fields' });
+    return;
+  }
+  if (!parseEngine(engine)) {
+    res.status(400).json({ ok: false, error: 'invalid_engine' });
+    return;
+  }
+
+  const result = await checkDeclaredDeletionInDatabase({
+    signedAttestation,
+    receipt,
+    trustedBackendPublicKeyHex: backendPublicKeyHex,
+    connection: createDemoWiredConnection(engine, recordKey),
+    databaseType: engine,
+    tableOrCollection: `${engine}_records`,
+    data: { keyField: 'record_key', keyValue: recordKey },
+  });
+  res.json({ ok: true, check: result });
+});
+
+app.post('/api/:engine/records/:recordKey/restore', (req, res) => {
+  const engine = parseEngine(req.params.engine);
+  const recordKey = decodeURIComponent(req.params.recordKey);
+  if (!engine) {
+    res.status(400).json({ ok: false, error: 'invalid_engine' });
+    return;
+  }
+  if (isRegisteredForRestore(engine, recordKey)) {
+    res.status(409).json({
+      ok: false,
+      error: 'restore_blocked',
+      reason: 'subject_deleted_and_registered',
+      message:
+        'Restore blocked: row was deleted via OffSign and may be tombstoned on MKTd03. Use guardRestoreAgainstMktd03 before any INSERT.',
+    });
+    return;
+  }
+  const restored = restoreRecord(engine, recordKey);
+  if (!restored) {
+    res.status(404).json({ ok: false, error: 'not_restorable' });
+    return;
+  }
+  res.json({ ok: true, engine, recordKey });
+});
+
 app.post('/api/reset', (_req, res) => {
   resetAll();
+  clearDeletionRegistry();
   res.json({ ok: true });
 });
 
 app.listen(PORT, () => {
-  console.log(`Goneproof demo API http://127.0.0.1:${PORT}`);
+  console.log(`OffSign demo API http://127.0.0.1:${PORT}`);
   console.log(`Backend attestation public key: ${backendPublicKeyHex}`);
 });

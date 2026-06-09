@@ -36,3 +36,28 @@ export type {
   SemanticVersion,
   SignedBackendDeletionAttestationV1,
 } from './types.js';
+export type {
+  CheckDeclaredDeletionParams,
+  CommercialPreflightStatus,
+  ContextualVerifyDeletion,
+  DatabaseEngine,
+  DatabaseVerifier,
+  OffsignDatabaseVerification,
+  SqlAbsentRecordData,
+  WiredDeletionData,
+  WiredDeletionDatabaseType,
+  WiredDeletionProps,
+  DeletionDatabaseCheckResult,
+  OffSignCommercialErrorCode,
+  RestoreGuardPolicy,
+  RestoreGuardResult,
+  SecurityPreflightResult,
+  VerifyDeletion,
+  VerifyDeletionContext,
+  VerifyDeletionResult,
+} from './offsignTypes.js';
+export {
+  OffSignCommercialError,
+  OffsignDatabaseVerifierRequiredError,
+  OffsignDeletionNotVerifiedError,
+} from './offsignTypes.js';

@@ -38,6 +38,8 @@ export type IssueAttestedDeletionReceiptParams = {
   trustedBackendPublicKeyHex?: string;
   /** Reject attestations older than this (default 24h). */
   maxAttestationAgeMs?: number;
+  /** Skip commercial preflight (tests / local dev only). */
+  skipPreflight?: boolean;
   audit?: Omit<DeletionAuditMetadata, 'extensions'>;
   onProgress?: (progress: IssuanceProgress) => void;
 };
@@ -45,4 +47,9 @@ export type IssueAttestedDeletionReceiptParams = {
 export type {
   BackendDeletionAttestationV1,
   SignedBackendDeletionAttestationV1,
+} from '@together-alone/zombiedelete-core';
+export type {
+  RestoreGuardResult,
+  SecurityPreflightResult,
+  OffSignCommercialErrorCode,
 } from '@together-alone/zombiedelete-core';

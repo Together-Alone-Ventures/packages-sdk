@@ -18,17 +18,15 @@ describe('signing', () => {
     expect(resolveAgentHost('http://localhost:4943', false)).toBe('http://127.0.0.1:4943');
   });
 
-  it('createSigningSession exposes deploy key principal', async () => {
+  it('createSigningSession exposes deploy key principal without replica call', () => {
     const identity = Ed25519KeyIdentity.generate();
     const session = createSigningSession({
       mode: 'deploy_key',
       icHost: 'http://127.0.0.1:4943',
       deployIdentityJson: JSON.stringify(identity.toJSON()),
     });
-    const agent = await session.createAgent();
     expect(session.principalText).toBe(identity.getPrincipal().toText());
     expect(session.modeLabel).toContain('deploy');
-    expect(agent).toBeDefined();
     session.clear();
   });
 

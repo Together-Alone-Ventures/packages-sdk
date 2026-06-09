@@ -23,7 +23,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@together-alone/zombiedelete-core": "file:../zombiedelete-core"
+    "@together-alone/zombiedelete-core": "file:../zombiedelete-core",
+    "@together-alone/zombiedelete-server": "file:../zombiedelete-server"
   },
   "peerDependencies": {
     "@dfinity/agent": "^3.4.0",
@@ -39,6 +40,7 @@
     "@dfinity/identity": "^3.4.3",
     "@dfinity/principal": "^3.4.3",
     "@together-alone/zombiedelete-core": "file:../zombiedelete-core",
+    "@together-alone/zombiedelete-server": "file:../zombiedelete-server",
     "@types/node": "^22.10.0",
     "typescript": "^5.6.3",
     "vitest": "^3.0.5"

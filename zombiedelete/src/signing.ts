@@ -150,6 +150,11 @@ export function createSigningSession(options: SigningOptions): SigningSession {
     }
   })();
 
+  if (mode === 'deploy_key' && options.deployIdentityJson) {
+    cachedIdentity = parseDeployIdentity(options.deployIdentityJson);
+    cachedPrincipalText = cachedIdentity.getPrincipal().toText();
+  }
+
   async function resolveIdentity(): Promise<Identity> {
     if (cachedIdentity) return cachedIdentity;
     switch (mode) {

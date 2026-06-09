@@ -1,5 +1,6 @@
 import {
   ZombieDeleteClient,
+  guardRestoreAgainstMktd03,
   isLocalReplicaHost,
   receiptSummary,
   resolveAgentHost,
@@ -120,19 +121,38 @@ export async function demoSubjectReference(recordId: string): Promise<Uint8Array
 
 export async function issueDemoAttestedDeletionReceipt(
   client: ZombieDeleteClient,
-  goneproof: SignedBackendDeletionAttestationV1,
+  attestation: SignedBackendDeletionAttestationV1,
   onProgress?: (p: IssuanceProgress) => void,
   audit?: DeletionAuditMetadata,
-  trustedBackendPublicKeyHex?: string
+  trustedBackendPublicKeyHex?: string,
+  options?: { skipPreflight?: boolean }
 ): Promise<Receipt> {
   const trusted =
     trustedBackendPublicKeyHex?.trim() || (await resolveTrustedBackendPublicKeyHex());
   return client.issueAttestedDeletionReceipt({
-    signedAttestation: goneproof,
+    signedAttestation: attestation,
     trustedBackendPublicKeyHex: trusted,
     audit,
     onProgress,
+    skipPreflight: options?.skipPreflight,
   });
+}
+
+export async function guardDemoRestore(
+  client: ZombieDeleteClient,
+  recordId: string
+): Promise<string | null> {
+  const guard = await guardRestoreAgainstMktd03({
+    subjectReference: await demoSubjectReference(recordId),
+    client,
+  });
+  if (!guard.allowed) {
+    if (guard.reason === 'tombstoned_on_chain') {
+      return `Restore blocked: subject tombstoned on MKTd03 (${guard.subjectReferenceHex.slice(0, 16)}…).`;
+    }
+    return 'Restore blocked: subject listed in local deletion registry.';
+  }
+  return null;
 }
 
 export async function tryReissueDemoDeletion(

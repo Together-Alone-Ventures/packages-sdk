@@ -1,37 +1,51 @@
 # @together-alone/zombiedelete-server
 
-SDK **Node.js / API** pour le client : signer une attestation d’effacement **après** un DELETE réussi en base.
-
-Installe dans l’API du client (Express, Nest, etc.) — **pas** dans le bundle React.
-
-## Installation
-
-```bash
-npm install @together-alone/zombiedelete-server @dfinity/identity
-```
+SDK **Node.js / API** (OffSign) : signer une **déclaration de suppression** après un DELETE réussi, avec re-lecture BDD **obligatoire**.
 
 ## Usage (DELETE handler)
 
 ```ts
 import { Ed25519KeyIdentity } from '@dfinity/identity';
-import { buildGoneproofDeletePayload, sha256 } from '@together-alone/zombiedelete-server';
+import { offsign, sha256 } from '@together-alone/zombiedelete-server';
 
-const backendIdentity = Ed25519KeyIdentity.fromJSON(process.env.GONEPROOF_BACKEND_IDENTITY_JSON!);
+const backendIdentity = Ed25519KeyIdentity.fromJSON(process.env.OFFSIGN_BACKEND_IDENTITY_JSON!);
 
 app.delete('/contacts/:id', async (req, res) => {
   await db.deleteContact(req.params.id);
 
   const subjectReference = await sha256(`tenant-acme:contact:${req.params.id}`);
-  const goneproof = await buildGoneproofDeletePayload({
+  const offsignPayload = await offsign({
     identity: backendIdentity,
     subjectReference,
     deletionEventId: crypto.randomUUID(),
-    sourceSystem: 'CRM Acme',
-    dbEngine: 'postgres',
+    sourceLocator: `contacts/${req.params.id}`,
+    // BDD branchée directement sur offsign :
+    connection: pool,
+    databaseType: 'postgres',
+    tableOrCollection: 'contacts',
+    data: { keyField: 'id', keyValue: req.params.id },
   });
 
-  res.json({ ok: true, goneproof });
+  res.json({ ok: true, offsign: offsignPayload });
 });
 ```
 
-Le front React utilise `@together-alone/zombiedelete` avec `issueAttestedDeletionReceipt({ signedAttestation: goneproof })`.
+MySQL : `databaseType: 'mysql'` · Mongo : `databaseType: 'mongo'`, `data: { _id: ... }`, `connection` = collection avec `findOne`.
+
+## Reconciliation canister ↔ BDD (C7)
+
+```ts
+await checkDeclaredDeletionInDatabase({
+  signedAttestation: offsignPayload,
+  receipt,
+  trustedBackendPublicKeyHex: BACKEND_PUBKEY_HEX,
+  connection: pool,
+  databaseType: 'postgres',
+  tableOrCollection: 'contacts',
+  data: { keyField: 'id', keyValue: contactId },
+});
+```
+
+Cas avancé : passer `databaseVerifier` pré-construit à la place des props inline.
+
+Sans `connection` + `databaseType` + `tableOrCollection` + `data`, **`offsign` refuse de signer**.

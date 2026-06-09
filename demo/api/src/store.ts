@@ -45,11 +45,31 @@ export function listRecords(engine: DbEngine): unknown[] {
   return readEngine(engine);
 }
 
+export function recordAbsent(engine: DbEngine, recordKey: string): boolean {
+  const rows = readEngine<{ recordKey?: string }>(engine);
+  return !rows.some((row) => row.recordKey === recordKey);
+}
+
+export function findRecord(engine: DbEngine, recordKey: string): unknown | null {
+  const rows = readEngine<{ recordKey?: string }>(engine);
+  return rows.find((row) => row.recordKey === recordKey) ?? null;
+}
+
 export function deleteRecord(engine: DbEngine, recordKey: string): boolean {
   const rows = readEngine<{ recordKey?: string }>(engine);
   const next = rows.filter((row) => row.recordKey !== recordKey);
   if (next.length === rows.length) return false;
   writeEngine(engine, next);
+  return true;
+}
+
+export function restoreRecord(engine: DbEngine, recordKey: string): boolean {
+  const seed = SEED[engine] as Array<{ recordKey?: string }>;
+  const row = seed.find((entry) => entry.recordKey === recordKey);
+  if (!row) return false;
+  const rows = readEngine<{ recordKey?: string }>(engine);
+  if (rows.some((entry) => entry.recordKey === recordKey)) return false;
+  writeEngine(engine, [...rows, row]);
   return true;
 }
 

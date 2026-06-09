@@ -10,8 +10,8 @@
     "demo/web"
   ],
   "scripts": {
-    "build": "npm run build -w @together-alone/zombiedelete-core && npm run build -w @together-alone/zombiedelete && npm run build -w @together-alone/zombiedelete-server",
-    "test": "npm run test -w @together-alone/zombiedelete-core && npm run test -w @together-alone/zombiedelete && npm run test -w @together-alone/zombiedelete-server",
+    "build": "npm run build -w @together-alone/zombiedelete-core && npm run build -w @together-alone/zombiedelete-server && npm run build -w @together-alone/zombiedelete",
+    "test": "npm run test -w @together-alone/zombiedelete-core && npm run test -w @together-alone/zombiedelete-server && npm run test -w @together-alone/zombiedelete",
     "typecheck": "npm run typecheck -ws --if-present",
     "demo:dev:api": "npm run dev -w goneproof-demo-api",
     "demo:dev:web": "npm run dev -w goneproof-demo-web"

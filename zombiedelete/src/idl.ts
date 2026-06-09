@@ -217,6 +217,53 @@ export const mktd03IdlFactory: IDL.InterfaceFactory = ({ IDL }) => {
     Err: AuditRecordApiError,
   });
 
+  const CommercialStatus = IDL.Variant({
+    operational: IDL.Null,
+    awaiting_first_injection: IDL.Null,
+    exhausted: IDL.Null,
+    expired: IDL.Null,
+    revoked: IDL.Null,
+    clone_suspected: IDL.Null,
+    init_rejected: IDL.Null,
+    dev_bypass: IDL.Null,
+  });
+
+  const CommercialApiError = IDL.Variant({
+    unauthorized_caller: IDL.Null,
+    invalid_signature: IDL.Null,
+    invalid_payload: IDL.Null,
+    canister_id_mismatch: IDL.Null,
+    deployment_mismatch: IDL.Null,
+    org_mismatch: IDL.Null,
+    seq_replay: IDL.Null,
+    bundle_replay: IDL.Null,
+    commercial_disabled: IDL.Null,
+    clone_suspected: IDL.Null,
+    storage_unavailable: IDL.Null,
+  });
+
+  const AllowanceStatus = IDL.Record({
+    commercial_status: CommercialStatus,
+    remaining: IDL.Nat64,
+    reserved: IDL.Nat64,
+    allowance_seq: IDL.Nat64,
+    deployment_id: IDL.Opt(IDL.Text),
+    org_id: IDL.Opt(IDL.Text),
+    dev_bypass: IDL.Bool,
+  });
+
+  const SecuritySurface = IDL.Record({
+    commercial_status: CommercialStatus,
+    deployment_id: IDL.Opt(IDL.Text),
+    org_id: IDL.Opt(IDL.Text),
+    module_hash: IDL.Opt(IDL.Vec(IDL.Nat8)),
+    blocked_reason: IDL.Opt(IDL.Text),
+    can_emit: IDL.Bool,
+  });
+
+  const AllowanceStatusResult = IDL.Variant({ Ok: AllowanceStatus, Err: CommercialApiError });
+  const SecurityStatusResult = IDL.Variant({ Ok: SecuritySurface, Err: CommercialApiError });
+
   return IDL.Service({
     get_tree_mode_status: IDL.Func([], [StatusSurface], ['query']),
     get_receipt: IDL.Func([IDL.Vec(IDL.Nat8)], [ReceiptResult], ['query']),
@@ -245,5 +292,7 @@ export const mktd03IdlFactory: IDL.InterfaceFactory = ({ IDL }) => {
       [RenderAuditPdfResult],
       []
     ),
+    get_allowance_status: IDL.Func([], [AllowanceStatusResult], ['query']),
+    get_security_status: IDL.Func([], [SecurityStatusResult], ['query']),
   });
 };
