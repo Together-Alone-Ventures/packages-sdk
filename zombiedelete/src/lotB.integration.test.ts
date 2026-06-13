@@ -5,7 +5,7 @@ import {
   checkDeclaredDeletionInDatabase,
   createTestDatabaseVerifier,
   offsign,
-} from '@together-alone/zombiedelete-server';
+} from '@together-alone/zombiedelete-server/internal';
 import { guardRestoreAgainstMktd03 } from './restoreGuard.js';
 import { preflightCommercial } from './preflightCommercial.js';
 import type { CommercialActor } from './commercial.js';
@@ -93,7 +93,8 @@ describe('Lot B integration (offsign → check → guard → preflight)', () => 
       }),
       get_security_status: async () => ({
         Ok: {
-          commercial_status: { clone_suspected: null },
+          security_status: { clone_suspected: null },
+          commercial_status: [{ exhausted: null }],
           deployment_id: [],
           org_id: [],
           module_hash: [],

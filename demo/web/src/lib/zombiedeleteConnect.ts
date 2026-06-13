@@ -1,73 +1,57 @@
 import {
-  ZombieDeleteClient,
-  guardRestoreAgainstMktd03,
-  isLocalReplicaHost,
   receiptSummary,
-  resolveAgentHost,
   sha256,
-  type DeletionAuditMetadata,
-  type IssuanceProgress,
   type Receipt,
   type SignedBackendDeletionAttestationV1,
-} from '@together-alone/zombiedelete';
-import localDevIcIdentity from '@demo-shared/local-dev-ic-identity.json';
-import localDevAuditorKey from '@demo-shared/local-dev-auditor-hmac-key.json';
+} from '@together-alone/zombiedelete-core';
+import type { IssuanceProgress } from '@together-alone/zombiedelete-server';
 import { fetchDemoApiConfig } from './demoApi';
+
+import { DEMO_COMPANY } from '@demo-shared/company';
 
 export { receiptSummary, sha256 };
 export type { Receipt, IssuanceProgress, SignedBackendDeletionAttestationV1 };
 
-const DEMO_SUBJECT_PREFIX = 'infoshare-demo:';
+async function demoSubjectPrefix(): Promise<string> {
+  const config = await fetchDemoApiConfig();
+  return config.subjectPrefix?.trim() || DEMO_COMPANY.subjectPrefix;
+}
 
 let cachedBackendPublicKeyHex: string | null = null;
+let cachedApiConfig: Awaited<ReturnType<typeof fetchDemoApiConfig>> | null = null;
+
+async function apiConfig() {
+  if (!cachedApiConfig) {
+    cachedApiConfig = await fetchDemoApiConfig();
+  }
+  return cachedApiConfig;
+}
+
+export function clearDemoApiConfigCache(): void {
+  cachedApiConfig = null;
+}
 
 export function clearBackendPublicKeyCache(): void {
   cachedBackendPublicKeyHex = null;
 }
 
-function configuredReplicaHost(): string {
-  const raw = import.meta.env.VITE_IC_HOST as string | undefined;
-  return (raw?.trim() || 'http://127.0.0.1:4943').replace(/\/$/, '');
-}
+const API_BASE =
+  (import.meta.env.VITE_DEMO_API_URL as string | undefined)?.trim() || '/demo-api';
 
-function loadDeployIdentityFromEnv(): string | undefined {
-  const raw = (import.meta.env.VITE_MKTD03_SIGNING_IDENTITY_JSON as string | undefined)?.trim();
-  return raw || undefined;
-}
-
-function resolveDeployIdentityJson(): string {
-  const fromEnv = loadDeployIdentityFromEnv();
-  if (fromEnv) return fromEnv;
-  if (isLocalReplicaHost(configuredReplicaHost())) {
-    return JSON.stringify(localDevIcIdentity);
+async function parseJson<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
   }
-  throw new Error(
-    'Deploy identity required (VITE_MKTD03_SIGNING_IDENTITY_JSON) for non-local IC replica.'
-  );
-}
-
-function resolveAuditorHmacKeyHex(): string {
-  const fromEnv = (import.meta.env.VITE_MKTD03_AUDITOR_HMAC_KEY_HEX as string | undefined)?.trim();
-  return fromEnv || localDevAuditorKey.hex;
+  return res.json() as Promise<T>;
 }
 
 export function getIcHost(): string {
-  const configured = configuredReplicaHost();
-  const useDevProxy = Boolean(import.meta.env.DEV && isLocalReplicaHost(configured));
-  return resolveAgentHost(configured, useDevProxy);
+  return (import.meta.env.VITE_IC_HOST as string | undefined)?.trim() || 'http://127.0.0.1:4943';
 }
 
 export function signingModeLabel(): string {
-  const explicit = (import.meta.env.VITE_DEMO_SIGNING_MODE as string | undefined)
-    ?.trim()
-    .toLowerCase();
-  if (explicit === 'internet_identity' || explicit === 'ii') return 'Internet Identity';
-  if (explicit === 'local_key' || explicit === 'local' || explicit === 'ephemeral') {
-    return 'localStorage key';
-  }
-  if (loadDeployIdentityFromEnv()) return 'deploy key (.env)';
-  if (isLocalReplicaHost(configuredReplicaHost())) return 'shared dev key (local)';
-  return 'deploy key';
+  return 'API controller (server-side)';
 }
 
 export async function resolveTrustedBackendPublicKeyHex(): Promise<string> {
@@ -79,95 +63,123 @@ export async function resolveTrustedBackendPublicKeyHex(): Promise<string> {
   return config.backendPublicKeyHex;
 }
 
-export async function connectDemoClient(canisterId: string): Promise<ZombieDeleteClient> {
-  const configured = configuredReplicaHost();
-  const useDevProxy = Boolean(import.meta.env.DEV && isLocalReplicaHost(configured));
-  const explicit = (import.meta.env.VITE_DEMO_SIGNING_MODE as string | undefined)
-    ?.trim()
-    .toLowerCase();
-
-  let mode: 'deploy_key' | 'internet_identity' | 'ephemeral' = 'deploy_key';
-  if (explicit === 'internet_identity' || explicit === 'ii') {
-    mode = 'internet_identity';
-  } else if (explicit === 'local_key' || explicit === 'local' || explicit === 'ephemeral') {
-    mode = 'ephemeral';
-  } else if (loadDeployIdentityFromEnv() || isLocalReplicaHost(configured)) {
-    mode = 'deploy_key';
-  } else if ((import.meta.env.VITE_INTERNET_IDENTITY_URL as string | undefined)?.trim()) {
-    mode = 'internet_identity';
+export async function connectDemoCanister(canisterId?: string): Promise<{
+  status: string;
+  controllerPrincipal: string;
+  icHost: string;
+  canisterId: string;
+}> {
+  const config = await apiConfig();
+  const id = canisterId?.trim() || config.mktd03CanisterId?.trim() || '';
+  if (!id) {
+    throw new Error('MKTD03_CANISTER_ID manquant. Définis-le dans packages-sdk/demo/api/.env');
   }
-
-  return ZombieDeleteClient.connect({
-    canisterId,
-    icHost: configured,
-    useDevProxy,
-    auditorHmacKeyHex: resolveAuditorHmacKeyHex(),
-    signing: {
-      mode,
-      icHost: configured,
-      useDevProxy,
-      deployIdentityJson: mode === 'deploy_key' ? resolveDeployIdentityJson() : undefined,
-      internetIdentityUrl:
-        (import.meta.env.VITE_INTERNET_IDENTITY_URL as string | undefined)?.trim() ||
-        'https://identity.ic0.app/#authorize',
-      ephemeralStorageKey: 'goneproof-mktd03-identity-v1',
-    },
-  });
+  const qs = id ? `?canisterId=${encodeURIComponent(id)}` : '';
+  const res = await fetch(`${API_BASE}/api/mktd03/status${qs}`);
+  const data = (await res.json()) as {
+    ok?: boolean;
+    status?: string;
+    controllerPrincipal?: string;
+    icHost?: string;
+    message?: string;
+    detail?: string;
+    error?: string;
+  };
+  if (!res.ok || !data.ok || !data.status) {
+    throw new Error(data.message ?? data.detail ?? data.error ?? res.statusText);
+  }
+  return {
+    status: data.status,
+    controllerPrincipal: data.controllerPrincipal ?? 'n/a',
+    icHost: data.icHost ?? config.icHost ?? getIcHost(),
+    canisterId: id,
+  };
 }
 
 export async function demoSubjectReference(recordId: string): Promise<Uint8Array> {
-  return sha256(`${DEMO_SUBJECT_PREFIX}${recordId}`);
+  return sha256(`${await demoSubjectPrefix()}${recordId}`);
 }
 
 export async function issueDemoAttestedDeletionReceipt(
-  client: ZombieDeleteClient,
-  attestation: SignedBackendDeletionAttestationV1,
+  engine: string,
+  recordKey: string,
   onProgress?: (p: IssuanceProgress) => void,
-  audit?: DeletionAuditMetadata,
-  trustedBackendPublicKeyHex?: string,
-  options?: { skipPreflight?: boolean }
-): Promise<Receipt> {
-  const trusted =
-    trustedBackendPublicKeyHex?.trim() || (await resolveTrustedBackendPublicKeyHex());
-  return client.issueAttestedDeletionReceipt({
-    signedAttestation: attestation,
-    trustedBackendPublicKeyHex: trusted,
-    audit,
-    onProgress,
-    skipPreflight: options?.skipPreflight,
-  });
+  audit?: {
+    subjectLabel?: string;
+    dataCategory?: string;
+    sourceSystem?: string;
+    legalContext?: string;
+  }
+): Promise<{ offsign: SignedBackendDeletionAttestationV1; receipt: Receipt }> {
+  onProgress?.({ step: 'begin', message: 'DELETE + offsign + issuance via demo API…' });
+  const res = await fetch(
+    `${API_BASE}/api/${engine}/records/${encodeURIComponent(recordKey)}/prove-deletion`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audit }),
+    }
+  );
+  const body = (await res.json()) as {
+    ok?: boolean;
+    offsign?: SignedBackendDeletionAttestationV1;
+    receipt?: Receipt;
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok || !body.ok || !body.offsign || !body.receipt) {
+    const err = body.message ?? body.error ?? 'prove_deletion_failed';
+    if (err === 'not_mktd03_canister' || String(body.message ?? '').includes('ne répond pas comme un MKTd03')) {
+      throw new Error(
+        body.message ??
+          'Canister invalide : utilisez l’ID MKTd03 déployé via le portail (pas un autre canister dfx local).'
+      );
+    }
+    throw new Error(body.message ?? err);
+  }
+  onProgress?.({ step: 'done', message: 'Deletion receipt issued via API.' });
+  return { offsign: body.offsign, receipt: body.receipt };
+}
+
+export async function syncDemoReceipt(
+  recordKey: string
+): Promise<{ kind: string; receipt?: Receipt }> {
+  const data = await parseJson<{
+    ok: true;
+    lookup: { kind: string; receipt?: Receipt };
+  }>(
+    await fetch(
+      `${API_BASE}/api/mktd03/receipt?recordKey=${encodeURIComponent(recordKey)}`
+    )
+  );
+  return data.lookup;
 }
 
 export async function guardDemoRestore(
-  client: ZombieDeleteClient,
+  engine: string,
   recordId: string
 ): Promise<string | null> {
-  const guard = await guardRestoreAgainstMktd03({
-    subjectReference: await demoSubjectReference(recordId),
-    client,
-  });
-  if (!guard.allowed) {
-    if (guard.reason === 'tombstoned_on_chain') {
-      return `Restore blocked: subject tombstoned on MKTd03 (${guard.subjectReferenceHex.slice(0, 16)}…).`;
+  const data = await parseJson<{
+    ok: true;
+    allowed: boolean;
+    reason?: string;
+    message?: string;
+  }>(
+    await fetch(
+      `${API_BASE}/api/mktd03/restore-guard?engine=${encodeURIComponent(engine)}&recordKey=${encodeURIComponent(recordId)}`
+    )
+  );
+  if (!data.allowed) {
+    if (data.reason === 'tombstoned_on_chain') {
+      return 'Restore blocked: subject tombstoned on MKTd03.';
     }
-    return 'Restore blocked: subject listed in local deletion registry.';
+    return data.message ?? 'Restore blocked: subject listed in local deletion registry.';
   }
   return null;
 }
 
-export async function tryReissueDemoDeletion(
-  client: ZombieDeleteClient,
-  recordId: string
-): Promise<string> {
-  const transitionMaterial = await sha256(`transition:${recordId}`);
-  return client.tryReissue({
-    subjectReference: await demoSubjectReference(recordId),
-    transitionMaterial,
-  });
-}
-
 export function formatIssuanceAgentError(
-  client: ZombieDeleteClient | null,
+  _client: unknown,
   error: unknown,
   canisterId?: string
 ): string {
@@ -177,25 +189,19 @@ export function formatIssuanceAgentError(
     (raw.includes('IC0406') ||
       raw.includes('reject code: 4') ||
       raw.includes('Canister rejected the message'));
-  if (!isControllerReject) {
-    return client?.formatAgentError(error) ?? raw;
-  }
-
-  const principal = client?.signerPrincipal ?? '—';
+  if (!isControllerReject) return raw;
   const target = canisterId?.trim() || '<CANISTER_ID>';
-  const mode = client?.signingModeLabel ?? signingModeLabel();
   return [
-    'Issuance rejected: signer is not a canister controller (MKTd03 v3.2).',
-    `Signer (${mode}): ${principal}`,
-    'Expected: same principal as `dfx canister info` after deploy.',
-    `Or: dfx canister update-settings ${target} --add-controller "${principal}"`,
+    'Issuance rejected: API controller is not a canister controller (MKTd03 v3.2).',
+    raw,
+    `Or: dfx canister update-settings ${target} --add-controller "<CONTROLLER_PRINCIPAL>"`,
   ].join('\n');
 }
 
-export function getActiveSignerPrincipalText(client?: ZombieDeleteClient | null): string {
-  return client?.signerPrincipal ?? '—';
+export function getActiveSignerPrincipalText(controllerPrincipal?: string | null): string {
+  return controllerPrincipal?.trim() || 'n/a';
 }
 
-export function clearSignerSession(client?: ZombieDeleteClient | null): void {
-  client?.disconnect();
+export function clearSignerSession(): void {
+  /* no browser signing session in API-only demo */
 }

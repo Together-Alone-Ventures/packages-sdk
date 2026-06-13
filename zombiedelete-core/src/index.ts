@@ -1,3 +1,4 @@
+export { buildAuditorToken } from './auditorToken.js';
 export {
   ATTESTATION_EXTENSION_KEYS,
   BACKEND_ATTESTATION_SIGN_DOMAIN,
@@ -21,6 +22,7 @@ export {
   hexPreview,
   issuanceErrorLabel,
   receiptSummary,
+  serializeReceiptForJson,
   sha256,
   TOMBSTONE_DELETION_STATE,
   variantKey,

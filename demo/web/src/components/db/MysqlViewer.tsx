@@ -1,12 +1,8 @@
-import {
-  MYSQL_ROWS,
-  MYSQL_SCHEMA,
-  MYSQL_TABLE,
-  type MysqlPiiRow,
-} from '../../data/demoDatabases';
+import { DEMO_COMPANY } from '@demo-shared/company';
+import { MYSQL_SCHEMA, MYSQL_TABLE, type MysqlPiiRow } from '../../data/demoDatabases';
 import { DbDeletionFooter } from './DbDeletionFooter';
 
-type Props = { rows: MysqlPiiRow[] };
+type Props = { rows: MysqlPiiRow[]; removedCount?: number };
 
 const COLUMNS: { key: keyof MysqlPiiRow; label: string; wide?: boolean }[] = [
   { key: 'id', label: 'id' },
@@ -19,16 +15,16 @@ const COLUMNS: { key: keyof MysqlPiiRow; label: string; wide?: boolean }[] = [
   { key: 'created_at', label: 'created_at' },
 ];
 
-export function MysqlViewer({ rows }: Props) {
-  const deletableTotal = MYSQL_ROWS.filter((r) => r.recordKey).length;
-  const removed = deletableTotal - rows.filter((r) => r.recordKey).length;
+export function MysqlViewer({ rows, removedCount = 0 }: Props) {
+  const deletableTotal = rows.filter((r) => r.recordKey).length + removedCount;
+  const removed = removedCount;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="db-modal-toolbar">
         <div>
           <p className="db-modal-breadcrumb">
-            Server: <span className="pg-breadcrumb">infoshare-demo</span> · Database:{' '}
+            Server: <span className="pg-breadcrumb">{DEMO_COMPANY.mysqlServerLabel}</span> · Database:{' '}
             <span className="pg-breadcrumb">{MYSQL_SCHEMA}</span> · Table:{' '}
             <span className="text-emerald-400">{MYSQL_TABLE}</span>
           </p>

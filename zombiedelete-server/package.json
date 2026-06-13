@@ -1,7 +1,7 @@
 {
   "name": "@together-alone/zombiedelete-server",
   "version": "0.1.0",
-  "description": "Node.js / API helpers for Goneproof backend deletion attestations (sign after DB delete).",
+  "description": "Node.js / API OffSign: offsign, issueAttestedDeletionReceipt, attestDeletionProof, issueDeletionCertificate.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "import": "./dist/internal.js"
     }
   },
   "files": ["dist", "README.md"],
@@ -22,10 +26,16 @@
     "@together-alone/zombiedelete-core": "file:../zombiedelete-core"
   },
   "peerDependencies": {
-    "@dfinity/identity": "^3.4.0"
+    "@dfinity/agent": "^3.4.0",
+    "@dfinity/candid": "^3.4.0",
+    "@dfinity/identity": "^3.4.0",
+    "@dfinity/principal": "^3.4.0"
   },
   "devDependencies": {
+    "@dfinity/agent": "^3.4.3",
+    "@dfinity/candid": "^3.4.3",
     "@dfinity/identity": "^3.4.3",
+    "@dfinity/principal": "^3.4.3",
     "typescript": "^5.6.3",
     "vitest": "^3.0.5"
   },

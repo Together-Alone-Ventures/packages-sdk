@@ -1,13 +1,7 @@
-import {
-  PG_DATABASE,
-  PG_SCHEMA,
-  PG_TABLE,
-  POSTGRES_ROWS,
-  type PostgresRow,
-} from '../../data/demoDatabases';
+import { PG_DATABASE, PG_SCHEMA, PG_TABLE, type PostgresRow } from '../../data/demoDatabases';
 import { DbDeletionFooter } from './DbDeletionFooter';
 
-type Props = { rows: PostgresRow[] };
+type Props = { rows: PostgresRow[]; removedCount?: number };
 
 const COLUMNS: { key: keyof PostgresRow; label: string; pgType: string; wide?: boolean }[] = [
   { key: 'id', label: 'id', pgType: 'text' },
@@ -20,9 +14,9 @@ const COLUMNS: { key: keyof PostgresRow; label: string; pgType: string; wide?: b
   { key: 'updated_at', label: 'updated_at', pgType: 'timestamptz' },
 ];
 
-export function PostgresViewer({ rows }: Props) {
-  const deletableTotal = POSTGRES_ROWS.filter((r) => r.recordKey).length;
-  const removed = deletableTotal - rows.filter((r) => r.recordKey).length;
+export function PostgresViewer({ rows, removedCount = 0 }: Props) {
+  const deletableTotal = rows.filter((r) => r.recordKey).length + removedCount;
+  const removed = removedCount;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

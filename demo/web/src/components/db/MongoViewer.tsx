@@ -1,14 +1,8 @@
 import { useMemo, useState } from 'react';
-import {
-  MONGO_CLUSTER,
-  MONGO_COLLECTIONS,
-  MONGO_DATABASE,
-  MONGO_DOCUMENTS,
-  type MongoDocument,
-} from '../../data/demoDatabases';
+import { MONGO_CLUSTER, MONGO_DATABASE, type MongoDocument } from '../../data/demoDatabases';
 import { DbDeletionFooter } from './DbDeletionFooter';
 
-type Props = { documents: MongoDocument[] };
+type Props = { documents: MongoDocument[]; removedCount?: number };
 
 function formatJson(value: unknown, indent = 0): string {
   const pad = '  '.repeat(indent);
@@ -28,19 +22,24 @@ function formatJson(value: unknown, indent = 0): string {
   return `{\n${inner}\n${pad}}`;
 }
 
-export function MongoViewer({ documents }: Props) {
-  const deletableTotal = MONGO_DOCUMENTS.filter((d) => d.recordKey).length;
-  const removed = deletableTotal - documents.filter((d) => d.recordKey).length;
+export function MongoViewer({ documents, removedCount = 0 }: Props) {
+  const deletableTotal = documents.filter((d) => d.recordKey).length + removedCount;
+  const removed = removedCount;
 
   const collectionsWithCounts = useMemo(() => {
-    return MONGO_COLLECTIONS.map((c) => ({
-      ...c,
-      visibleCount: documents.filter((d) => d.collection === c.name).length,
+    const names = [...new Set(documents.map((d) => d.collection))].sort();
+    return names.map((name) => ({
+      name,
+      visibleCount: documents.filter((d) => d.collection === name).length,
     }));
   }, [documents]);
 
-  const [activeCollection, setActiveCollection] = useState('attendee_profiles');
-  const docs = documents.filter((d) => d.collection === activeCollection);
+  const [activeCollection, setActiveCollection] = useState('');
+  const resolvedCollection =
+    activeCollection && collectionsWithCounts.some((c) => c.name === activeCollection)
+      ? activeCollection
+      : (collectionsWithCounts[0]?.name ?? '');
+  const docs = documents.filter((d) => d.collection === resolvedCollection);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -65,7 +64,7 @@ export function MongoViewer({ documents }: Props) {
                 <button
                   type="button"
                   className={`mongo-collection-btn ${
-                    activeCollection === c.name ? 'mongo-collection-btn--active' : ''
+                    resolvedCollection === c.name ? 'mongo-collection-btn--active' : ''
                   }`}
                   onClick={() => setActiveCollection(c.name)}
                 >
@@ -80,7 +79,7 @@ export function MongoViewer({ documents }: Props) {
 
         <div className="mongo-docs">
           <p className="mongo-docs-header">
-            {activeCollection} · {docs.length} document{docs.length === 1 ? '' : 's'}
+            {resolvedCollection || 'n/a'} · {docs.length} document{docs.length === 1 ? '' : 's'}
           </p>
           {docs.length === 0 ? (
             <p className="mongo-empty">

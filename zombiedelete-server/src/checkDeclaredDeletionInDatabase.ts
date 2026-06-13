@@ -1,4 +1,5 @@
 import {
+  asBytes,
   bytesToHex,
   OffsignDatabaseVerifierRequiredError,
   transitionMaterialFromAttestation,
@@ -15,18 +16,11 @@ function receiptBindingMatches(
   transitionMaterial: Uint8Array
 ): boolean {
   const evidence = receipt.core_transition_evidence;
-  const subjectBytes =
-    evidence.subject_reference instanceof Uint8Array
-      ? evidence.subject_reference
-      : new Uint8Array(evidence.subject_reference);
-  const subjectHex = bytesToHex(subjectBytes).toLowerCase();
+  const subjectHex = bytesToHex(asBytes(evidence.subject_reference)).toLowerCase();
   if (subjectHex !== subjectReferenceHex.toLowerCase()) {
     return false;
   }
-  const transitionBytes =
-    evidence.transition_material instanceof Uint8Array
-      ? evidence.transition_material
-      : new Uint8Array(evidence.transition_material);
+  const transitionBytes = asBytes(evidence.transition_material);
   if (transitionBytes.length !== transitionMaterial.length) {
     return false;
   }

@@ -10,12 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@together-alone/zombiedelete": "file:../../zombiedelete",
-    "@dfinity/agent": "^3.4.3",
-    "@dfinity/auth-client": "^3.4.3",
-    "@dfinity/candid": "^3.4.3",
-    "@dfinity/identity": "^3.4.3",
-    "@dfinity/principal": "^3.4.3",
+    "@together-alone/zombiedelete-server": "file:../../zombiedelete-server",
+    "@together-alone/zombiedelete-core": "file:../../zombiedelete-core",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

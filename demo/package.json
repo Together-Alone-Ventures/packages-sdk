@@ -3,8 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:seed": "npm run db:seed -w goneproof-demo-api",
     "dev:api": "npm run dev -w goneproof-demo-api",
+    "dev:api:real": "npm run dev:real -w goneproof-demo-api",
     "dev:web": "npm run dev -w goneproof-demo-web",
+    "dev:real": "npm run db:up && npm run db:seed",
     "typecheck": "npm run typecheck -w goneproof-demo-api && npm run typecheck -w goneproof-demo-web",
     "build": "npm run build -w goneproof-demo-web"
   }

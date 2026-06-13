@@ -1,42 +1,45 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ZombieDeleteClient } from '@together-alone/zombiedelete';
+import { receiptSummary } from '@together-alone/zombiedelete-core';
 import {
   clearBackendPublicKeyCache,
-  clearSignerSession,
-  connectDemoClient,
-  demoSubjectReference,
+  clearDemoApiConfigCache,
+  connectDemoCanister,
   formatIssuanceAgentError,
   getActiveSignerPrincipalText,
-  getIcHost,
   guardDemoRestore,
   issueDemoAttestedDeletionReceipt,
-  receiptSummary,
   signingModeLabel,
-  tryReissueDemoDeletion,
+  syncDemoReceipt,
   type IssuanceProgress,
 } from './lib/zombiedeleteConnect';
-import { deleteRecordViaApi, checkDeclaredDeletionViaApi, fetchAllEngineSnapshots, resetDemoDatabases, restoreRecordViaApi } from './lib/demoApi';
+import {
+  checkDeclaredDeletionViaApi,
+  fetchAllEngineSnapshots,
+  fetchDemoApiConfig,
+  resetDemoDatabases,
+  downloadDeletionCertificatePdf,
+  restoreRecordViaApi,
+} from './lib/demoApi';
 import { loadErasureState, saveErasureState } from './lib/erasurePersistence';
 import type { Receipt, RecordUiState } from './lib/types';
 import { BRAND } from './config/brand';
-import infoshareLogo from './assets/images/infoshare-logo.webp';
+import { CompanyLogo } from './components/CompanyLogo';
 import {
-  allDeletableTargets,
+  allDeletableTargetsFromSnapshot,
   deletableRecordKeys,
   deletableRecordKeysFromSnapshot,
   homeDataItems,
-  MYSQL_ROWS,
-  MONGO_DOCUMENTS,
-  POSTGRES_ROWS,
   type DbSnapshot,
 } from './data/demoDatabases';
-import { ConferenceDataList } from './components/ConferenceDataList';
+import type { SignedBackendDeletionAttestationV1 } from '@together-alone/zombiedelete-core';
+import { PlatformDataList } from './components/PlatformDataList';
 import { DatabaseViewerModal } from './components/DatabaseViewerModal';
 import type { DbEngine } from './lib/dbEngine';
 
 type RecordState = {
   ui: RecordUiState;
   receipt?: Receipt;
+  offsign?: SignedBackendDeletionAttestationV1;
   lastError?: string;
 };
 
@@ -53,9 +56,9 @@ const emptySelection = (): Record<DbEngine, string> => ({
 });
 
 const emptySnapshot = (): DbSnapshot => ({
-  mysql: MYSQL_ROWS,
-  postgres: POSTGRES_ROWS,
-  mongo: MONGO_DOCUMENTS,
+  mysql: [],
+  postgres: [],
+  mongo: [],
 });
 
 export default function App() {
@@ -63,7 +66,6 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [canisterStatus, setCanisterStatus] = useState<string | null>(null);
-  const [client, setClient] = useState<ZombieDeleteClient | null>(null);
   const [dbSnapshot, setDbSnapshot] = useState<DbSnapshot>(emptySnapshot);
   const [apiReady, setApiReady] = useState(false);
   const [erasureByEngine, setErasureByEngine] = useState<ErasureByEngine>(EMPTY_ERASURE);
@@ -74,7 +76,7 @@ export default function App() {
   const [reissueMessage, setReissueMessage] = useState<string | null>(null);
   const [dbModalOpen, setDbModalOpen] = useState(false);
   const [dataEngine, setDataEngine] = useState<DbEngine>('mysql');
-  const lastConnectedCanisterRef = useRef<string | null>(null);
+  const bootstrapStarted = useRef(false);
 
   const engineRecords = erasureByEngine[dataEngine];
   const selectedId = selectedByEngine[dataEngine];
@@ -107,14 +109,19 @@ export default function App() {
   const patchEngineRecord = (engine: DbEngine, recordId: string, patch: RecordState) => {
     applyErasureState((prev) => ({
       ...prev,
-      [engine]: { ...prev[engine], [recordId]: patch },
+      [engine]: {
+        ...prev[engine],
+        [recordId]: { ...prev[engine][recordId], ...patch },
+      },
     }));
   };
 
   const selectedState = selectedId ? engineRecords[selectedId] : undefined;
   const selectedUi = selectedState?.ui ?? 'active';
-  const canEraseSelected = deletableRecordKeys(dataEngine).includes(selectedId);
-  const rowInBackend = deletableRecordKeysFromSnapshot(dataEngine, dbSnapshot).includes(selectedId);
+  const catalogKeys = deletableRecordKeys(dataEngine);
+  const backendKeys = deletableRecordKeysFromSnapshot(dataEngine, dbSnapshot);
+  const canEraseSelected = catalogKeys.includes(selectedId);
+  const rowInBackend = backendKeys.includes(selectedId);
   const canIssueProof = canEraseSelected && rowInBackend && selectedUi !== 'deleted';
   const selectedLabel = useMemo(() => {
     const item = homeDataItems(dataEngine).find((i) => i.recordKey === selectedId);
@@ -126,14 +133,6 @@ export default function App() {
     setDbSnapshot(snapshot);
     setApiReady(true);
   }, []);
-
-  useEffect(() => {
-    void refreshDbSnapshot().catch((e) => {
-      const msg = e instanceof Error ? e.message : String(e);
-      logId.n += 1;
-      setLogs((prev) => [{ id: logId.n, tone: 'err' as const, text: msg }, ...prev].slice(0, 12));
-    });
-  }, [refreshDbSnapshot, logId]);
 
   // After API reset, rows reappear in the backend — drop stale "deleted" UI for those keys.
   useEffect(() => {
@@ -161,19 +160,17 @@ export default function App() {
   // Initial selection only — never jump away from a row the user just erased (with proof).
   useEffect(() => {
     if (!apiReady || selectedId) return;
-    const backendKeys = deletableRecordKeysFromSnapshot(dataEngine, dbSnapshot);
     const pick = deletableRecordKeys(dataEngine).find(
-      (key) => backendKeys.includes(key) && engineRecords[key]?.ui !== 'deleted'
+      (key) => engineRecords[key]?.ui !== 'deleted' && backendKeys.includes(key)
     );
     if (pick) {
       setSelectedByEngine((prev) => ({ ...prev, [dataEngine]: pick }));
     }
-  }, [apiReady, dataEngine, dbSnapshot, engineRecords, selectedId]);
+  }, [apiReady, dataEngine, dbSnapshot, engineRecords, selectedId, backendKeys]);
 
-  const syncRecord = async (zd: ZombieDeleteClient, engine: DbEngine, recordId: string) => {
-    const subject = await demoSubjectReference(recordId);
-    const lookup = await zd.getReceipt(subject);
-    if (lookup.kind === 'ok') {
+  const syncRecord = async (engine: DbEngine, recordId: string) => {
+    const lookup = await syncDemoReceipt(recordId);
+    if (lookup.kind === 'ok' && lookup.receipt) {
       patchEngineRecord(engine, recordId, { ui: 'deleted', receipt: lookup.receipt });
     } else if (lookup.kind === 'not_yet_issued') {
       patchEngineRecord(engine, recordId, {
@@ -191,74 +188,93 @@ export default function App() {
     }
   };
 
-  const syncAllReceipts = async (zd: ZombieDeleteClient) => {
-    for (const { engine, key } of allDeletableTargets()) {
-      await syncRecord(zd, engine, key);
+  const syncAllReceipts = async (snapshot: DbSnapshot, persisted: ErasureByEngine | null) => {
+    const seen = new Set<string>();
+    const syncKey = async (engine: DbEngine, key: string) => {
+      const token = `${engine}:${key}`;
+      if (seen.has(token)) return;
+      seen.add(token);
+      await syncRecord(engine, key);
+    };
+    for (const engine of ['mysql', 'postgres', 'mongo'] as const) {
+      for (const key of deletableRecordKeys(engine)) {
+        await syncKey(engine, key);
+      }
     }
-    pushLog('info', 'Restored erasure state from canister for MySQL, PostgreSQL, and MongoDB.');
-  };
-
-  const disconnect = () => {
-    clearSignerSession(client);
-    setClient(null);
-    setConnected(false);
-    setCanisterStatus(null);
-    setErasureByEngine(EMPTY_ERASURE);
-    pushLog('info', 'Disconnected — paste another canister id and Connect.');
+    for (const { engine, key } of allDeletableTargetsFromSnapshot(snapshot)) {
+      await syncKey(engine, key);
+    }
+    for (const engine of ['mysql', 'postgres', 'mongo'] as const) {
+      for (const key of Object.keys(persisted?.[engine] ?? {})) {
+        await syncKey(engine, key);
+      }
+    }
+    pushLog('info', 'État d’effacement resynchronisé depuis le canister (données API).');
   };
 
   const connect = useCallback(async () => {
-    const id = canisterId.trim();
+    const config = await fetchDemoApiConfig();
+    const id = config.mktd03CanisterId?.trim() ?? canisterId.trim();
     if (!id) {
-      pushLog('err', 'Enter your MKTd03 canister id.');
+      pushLog('err', 'MKTD03_CANISTER_ID manquant dans packages-sdk/demo/api/.env');
       return;
     }
     setConnecting(true);
     setCanisterStatus(null);
     try {
-      const isNewCanister = lastConnectedCanisterRef.current !== id;
-      if (isNewCanister) {
-        clearBackendPublicKeyCache();
-        await resetDemoDatabases();
-        await refreshDbSnapshot();
-        lastConnectedCanisterRef.current = id;
-        setReissueMessage(null);
-        pushLog('info', 'New canister — backend databases reset to initial seed data.');
-      }
+      setCanisterId(id);
+      const persisted = (loadErasureState(id) as ErasureByEngine | null) ?? EMPTY_ERASURE;
+      setErasureByEngine(persisted);
+      const snapshot = await fetchAllEngineSnapshots();
+      setDbSnapshot(snapshot);
+      setApiReady(true);
 
-      const persisted = loadErasureState(id);
-      setErasureByEngine((persisted as ErasureByEngine | null) ?? EMPTY_ERASURE);
-
-      const nextClient = await connectDemoClient(id);
-      const status = await nextClient.getStatus();
-      setClient(nextClient);
+      const connection = await connectDemoCanister();
+      setCanisterId(connection.canisterId);
       setConnected(true);
-      setCanisterStatus(status);
-      const principal = getActiveSignerPrincipalText(nextClient);
-      pushLog('ok', `Connected to ${id} (${getIcHost()})`);
+      setCanisterStatus(connection.status);
+      pushLog('ok', `MKTd03 prêt via API (${connection.canisterId}, ${connection.icHost})`);
       pushLog(
         'info',
-        `Signer (${signingModeLabel()}): ${principal} — doit correspondre à Controllers: de dfx canister info.`
+        `${signingModeLabel()} : ${getActiveSignerPrincipalText(connection.controllerPrincipal)}`
       );
-      await syncAllReceipts(nextClient);
+      pushLog(
+        'info',
+        `BDD live : ${snapshot.mysql.length} MySQL · ${snapshot.postgres.length} Postgres · ${snapshot.mongo.length} Mongo`
+      );
+      await syncAllReceipts(snapshot, persisted);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       pushLog('err', msg);
       setConnected(false);
-      setClient(null);
     } finally {
       setConnecting(false);
     }
-  }, [canisterId, pushLog, refreshDbSnapshot]);
+  }, [canisterId, pushLog]);
+
+  useEffect(() => {
+    if (bootstrapStarted.current) return;
+    bootstrapStarted.current = true;
+    void (async () => {
+      try {
+        await refreshDbSnapshot();
+        await connect();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        pushLog('err', msg);
+      }
+    })();
+  }, [connect, pushLog, refreshDbSnapshot]);
 
   const resetDemo = async () => {
     try {
       clearBackendPublicKeyCache();
+      clearDemoApiConfigCache();
       await resetDemoDatabases();
       await refreshDbSnapshot();
       applyErasureState(() => EMPTY_ERASURE);
       setReissueMessage(null);
-      pushLog('ok', 'Demo databases reset — all seed rows restored in the backend.');
+      pushLog('ok', 'Demo databases reset: all seed rows restored in the backend.');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       pushLog('err', msg);
@@ -266,35 +282,28 @@ export default function App() {
   };
 
   const proveDeletion = async () => {
-    if (!client || !canIssueProof || !apiReady) return;
+    if (!connected || !canIssueProof || !apiReady) return;
     setBusy(true);
     setProgress(null);
     setReissueMessage(null);
     patchEngineRecord(dataEngine, selectedId, { ui: 'checking' });
     let deleteSucceeded = false;
     try {
-      pushLog('info', `DELETE via demo API (${dataEngine})…`);
-      const deleteResult = await deleteRecordViaApi(dataEngine, selectedId);
-      deleteSucceeded = true;
-      await refreshDbSnapshot();
-      pushLog('ok', `Row removed from local ${dataEngine} database.`);
-
-      const attestation = deleteResult.offsign ?? deleteResult.goneproof;
-      if (!attestation) {
-        throw new Error('Demo API did not return offsign attestation');
-      }
-      const receipt = await issueDemoAttestedDeletionReceipt(
-        client,
-        attestation,
+      pushLog('info', `DELETE + offsign + issuance via demo API (${dataEngine})…`);
+      const { offsign: attestation, receipt } = await issueDemoAttestedDeletionReceipt(
+        dataEngine,
+        selectedId,
         setProgress,
         {
           subjectLabel: selectedLabel.replace(/\u00b7/g, ' - '),
           dataCategory: dataEngine,
-          sourceSystem: 'Infoshare booth demo',
+          sourceSystem: BRAND.sourceSystem,
           legalContext: 'GDPR Art. 17 - demo (backend-attested declaration)',
-        },
-        deleteResult.backendPublicKeyHex
+        }
       );
+      deleteSucceeded = true;
+      await refreshDbSnapshot();
+      pushLog('ok', `Row removed from local ${dataEngine} database and CVDR receipt issued.`);
 
       const dbCheck = await checkDeclaredDeletionViaApi({
         engine: dataEngine,
@@ -311,14 +320,14 @@ export default function App() {
         );
       }
 
-      patchEngineRecord(dataEngine, selectedId, { ui: 'deleted', receipt });
+      patchEngineRecord(dataEngine, selectedId, { ui: 'deleted', receipt, offsign: attestation });
       const sum = receiptSummary(receipt);
       pushLog(
         'ok',
         `Backend-attested receipt issued for ${selectedLabel} (${dataEngine}). Tombstone ${sum.postHex}`
       );
     } catch (e) {
-      let msg = formatIssuanceAgentError(client, e, canisterId);
+      let msg = formatIssuanceAgentError(null, e, canisterId);
       if (msg.includes('Audit metadata rejected')) {
         msg += [
           '',
@@ -331,7 +340,7 @@ export default function App() {
         try {
           await resetDemoDatabases();
           await refreshDbSnapshot();
-          pushLog('info', 'Demo API rows restored after failed proof — you can retry.');
+          pushLog('info', 'Demo API rows restored after failed proof. You can retry.');
         } catch {
           // keep primary error visible
         }
@@ -345,11 +354,11 @@ export default function App() {
   };
 
   const attemptRestore = async () => {
-    if (!client || !canEraseSelected) return;
+    if (!connected || !canEraseSelected) return;
     setBusy(true);
     setReissueMessage(null);
     try {
-      const guardMsg = await guardDemoRestore(client, selectedId);
+      const guardMsg = await guardDemoRestore(dataEngine, selectedId);
       if (guardMsg) {
         setReissueMessage(guardMsg);
         pushLog('info', guardMsg);
@@ -359,11 +368,18 @@ export default function App() {
         }
         return;
       }
-      const msg = await tryReissueDemoDeletion(client, selectedId);
-      setReissueMessage(msg);
-      pushLog('info', `Re-add blocked (${dataEngine}): ${msg}`);
+      const apiRestore = await restoreRecordViaApi(dataEngine, selectedId);
+      if (apiRestore.ok) {
+        patchEngineRecord(dataEngine, selectedId, { ui: 'active' });
+        await refreshDbSnapshot();
+        setReissueMessage(null);
+        pushLog('ok', `Row restored in ${dataEngine} database (no on-chain tombstone).`);
+        return;
+      }
+      setReissueMessage(apiRestore.message ?? apiRestore.error ?? 'restore_failed');
+      pushLog('info', `Restore not applied: ${apiRestore.message ?? apiRestore.error}`);
     } catch (e) {
-      const msg = formatIssuanceAgentError(client, e, canisterId);
+      const msg = formatIssuanceAgentError(null, e, canisterId);
       setReissueMessage(msg);
       pushLog('err', msg);
     } finally {
@@ -372,92 +388,45 @@ export default function App() {
   };
 
   return (
-    <div className="mx-auto min-h-screen max-w-6xl px-4 py-8 md:px-8">
-      <header className="mb-8">
-        <div className="flex gap-4">
-          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white shadow-lg shadow-black/30">
-            <img
-              src={infoshareLogo}
-              alt="Infoshare"
-              className="h-[150%] w-[150%] max-w-none object-contain"
-            />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent-alt/90">
-              {BRAND.demoContext}
-            </p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight md:text-4xl">{BRAND.name}</h1>
-            <p className="mt-1 text-sm font-medium text-accent">{BRAND.tagline}</p>
-            <p className="mt-2 max-w-xl text-slate-400 text-sm leading-relaxed">{BRAND.description}</p>
+    <div className="demo-shell">
+      <header className="demo-hero">
+        <div className="demo-hero-inner">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex gap-4 md:gap-5">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] shadow-panel">
+                <CompanyLogo className="h-9 w-9" title={BRAND.name} />
+              </div>
+              <div className="min-w-0">
+                <p className="demo-kicker">{BRAND.demoContext}</p>
+                <h1 className="mt-2 text-3xl font-bold tracking-tight text-white md:text-[2.5rem] md:leading-tight">
+                  {BRAND.name}
+                </h1>
+                <p className="mt-3 max-w-2xl text-sm leading-relaxed text-zinc-400">{BRAND.description}</p>
+                <p className="mt-3 text-sm font-medium text-zinc-300">{BRAND.tagline}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 lg:pt-1">
+              <span
+                className={`demo-status ${
+                  connecting ? 'demo-status--busy' : connected ? 'demo-status--ok' : 'demo-status--off'
+                }`}
+              >
+                {connecting ? 'Connecting MKTd03…' : connected ? 'MKTd03 connected' : 'MKTd03 offline'}
+              </span>
+              {canisterStatus ? (
+                <span className="demo-badge hidden font-mono sm:inline-flex">{canisterId.slice(0, 12)}…</span>
+              ) : null}
+            </div>
           </div>
         </div>
       </header>
 
-      <section className="demo-panel mb-6">
-        <h2 className="text-sm font-semibold text-slate-300">MKTd03 canister (client-hosted)</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Paste any MKTd03 canister id (local dfx or mainnet), then Connect. Connecting a{' '}
-          <strong>different</strong> canister resets the demo backend to fresh seed data. Receipts
-          are saved per canister in this browser. This demo issues a{' '}
-          <strong>backend-attested deletion receipt</strong> — not a trustless proof that Postgres
-          was wiped.
-        </p>
-        <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
-          <label className="flex-1 text-sm">
-            <span className="mb-1 block text-slate-500">Vault canister id</span>
-            <input
-              className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-sm outline-none ring-accent/40 focus:ring-2"
-              value={canisterId}
-              onChange={(e) => setCanisterId(e.target.value)}
-              placeholder="aaaaa-aa"
-              disabled={connected}
-            />
-          </label>
-          <label className="md:w-56 text-sm">
-            <span className="mb-1 block text-slate-500">IC host</span>
-            <input
-              className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 font-mono text-xs text-slate-400"
-              value={getIcHost()}
-              readOnly
-            />
-          </label>
-          <button
-            type="button"
-            className="demo-btn-primary shrink-0"
-            onClick={() => void connect()}
-            disabled={connecting || connected}
-          >
-            {connecting ? 'Connecting…' : connected ? 'Connected' : 'Connect'}
-          </button>
-          {connected ? (
-            <button type="button" className="demo-btn-ghost shrink-0" onClick={disconnect}>
-              Disconnect
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="demo-btn-ghost shrink-0 text-xs"
-            disabled={!apiReady}
-            onClick={() => void resetDemo()}
-          >
-            Reset demo DB
-          </button>
-        </div>
-        {canisterStatus ? (
-          <p className="mt-3 font-mono text-xs text-accent/90">Canister: {canisterStatus}</p>
-        ) : null}
-        {!connected ? (
-          <p className="mt-3 text-xs text-slate-500">
-            Deploy MKTd03 from Together-alone or local <code className="text-slate-400">dfx</code>).
-          </p>
-        ) : null}
-      </section>
-
-      <div className="grid gap-6 lg:grid-cols-5">
+      <div className="grid gap-5 lg:grid-cols-5 lg:gap-6">
         <section className="demo-panel lg:col-span-2">
-          <ConferenceDataList
+          <PlatformDataList
             engine={dataEngine}
             onEngineChange={setDataEngine}
+            snapshot={dbSnapshot}
             records={engineRecords}
             selectedId={selectedId}
             onSelect={setSelectedId}
@@ -466,14 +435,17 @@ export default function App() {
         </section>
 
         <section className="demo-panel lg:col-span-3">
-          <h2 className="text-sm font-semibold text-slate-300">Erasure workflow</h2>
+          <div className="demo-panel-header">
+            <h2 className="demo-section-title">Erasure workflow</h2>
+          </div>
           {canEraseSelected ? (
             <>
-              <p className="mt-2 text-slate-400 text-sm">
-                Selected ({dataEngine}): <span className="text-white">{selectedLabel}</span>
+              <p className="text-sm text-zinc-400">
+                Selected ({dataEngine}):{' '}
+                <span className="font-medium text-zinc-100">{selectedLabel}</span>
               </p>
 
-              <ol className="mt-5 space-y-3 text-sm">
+              <ol className="demo-steps">
                 <Step
                   n={1}
                   title="Record exists"
@@ -520,15 +492,21 @@ export default function App() {
                   disabled={!connected || busy || selectedUi !== 'deleted'}
                   onClick={() => void attemptRestore()}
                 >
-                  Try to restore attendee data
+                  Try to restore customer data
                 </button>
               </div>
 
-              {!connected ? (
-                <p className="mt-3 text-sm text-warn">Connect the canister above to issue a proof.</p>
+              {connecting ? (
+                <p className="mt-3 text-sm text-zinc-500">Connexion MKTd03 via l’API…</p>
+              ) : null}
+              {!connected && !connecting ? (
+                <p className="mt-3 text-sm text-warn">
+                  MKTd03 indisponible. Vérifiez MKTD03_CANISTER_ID dans demo/api/.env et relancez
+                  l’API.
+                </p>
               ) : null}
               {connected && !rowInBackend && selectedUi === 'active' ? (
-                <p className="mt-3 text-sm text-slate-500">
+                <p className="mt-3 text-sm text-zinc-500">
                   This row is not in the backend database anymore. Use <strong>Reset demo DB</strong>{' '}
                   or pick a row still live in Visualize database.
                 </p>
@@ -537,15 +515,17 @@ export default function App() {
               {selectedUi === 'deleted' && selectedState?.receipt ? (
                 <ReceiptCard
                   receipt={selectedState.receipt}
-                  client={client}
-                  recordId={selectedId}
+                  offsign={selectedState.offsign}
+                  engine={dataEngine}
+                  recordKey={selectedId}
+                  connected={connected}
                   subjectLabel={selectedLabel}
                   onLog={pushLog}
                 />
               ) : null}
 
               {reissueMessage ? (
-                <div className="mt-4 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+                <div className="demo-alert">
                   <strong>Re-add blocked.</strong> {reissueMessage}
                 </div>
               ) : null}
@@ -555,7 +535,7 @@ export default function App() {
               ) : null}
             </>
           ) : (
-            <p className="mt-3 text-sm text-slate-500">
+            <p className="mt-3 text-sm text-zinc-500">
               Select a demo-linked row in your platform data (MySQL, PostgreSQL, or MongoDB) to run
               the erasure workflow. Each store has its own on-chain subject.
             </p>
@@ -563,21 +543,38 @@ export default function App() {
         </section>
       </div>
 
-      <section className="demo-panel mt-6">
-        <h2 className="text-sm font-semibold text-slate-300">Activity log</h2>
-        <ul className="mt-3 space-y-1 font-mono text-xs">
+      <section className="demo-panel mt-5 lg:mt-6">
+        <div className="demo-panel-header">
+          <h2 className="demo-section-title">Activity log</h2>
+          <button
+            type="button"
+            className="demo-btn-ghost px-3 py-1.5 text-xs"
+            disabled={!apiReady || busy}
+            onClick={() => void resetDemo()}
+          >
+            Reset demo DB
+          </button>
+        </div>
+        {canisterStatus ? (
+          <p className="demo-meta text-accent/90">
+            MKTd03 · {canisterId || '…'} · {canisterStatus}
+          </p>
+        ) : null}
+        <ul className="demo-log">
           {logs.length === 0 ? (
-            <li className="text-slate-600">Connect a canister to start.</li>
+            <li className="demo-log-line--info">
+              {connecting ? 'Initialisation…' : 'En attente de l’API demo.'}
+            </li>
           ) : (
             logs.map((line) => (
               <li
                 key={line.id}
                 className={
                   line.tone === 'ok'
-                    ? 'text-accent'
+                    ? 'demo-log-line--ok'
                     : line.tone === 'err'
-                      ? 'text-danger'
-                      : 'text-slate-400'
+                      ? 'demo-log-line--err'
+                      : 'demo-log-line--info'
                 }
               >
                 {line.text}
@@ -587,12 +584,15 @@ export default function App() {
         </ul>
       </section>
 
+      <p className="demo-footer-note">{BRAND.poweredBy}</p>
+
       <DatabaseViewerModal
         open={dbModalOpen}
         onClose={() => setDbModalOpen(false)}
         snapshot={dbSnapshot}
         engine={dataEngine}
         onEngineChange={setDataEngine}
+        removedCount={Object.values(engineRecords).filter((s) => s?.ui === 'deleted').length}
       />
     </div>
   );
@@ -611,26 +611,14 @@ function Step({
   active: boolean;
   children: ReactNode;
 }) {
+  const stateClass = active ? 'demo-step--active' : done ? 'demo-step--done' : 'demo-step--muted';
+
   return (
-    <li
-      className={`flex gap-3 rounded-xl border px-3 py-3 ${
-        active
-          ? 'border-accent/40 bg-accent/5'
-          : done
-            ? 'border-white/10 bg-white/5'
-            : 'border-white/5 bg-black/20 opacity-70'
-      }`}
-    >
-      <span
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-          done ? 'bg-accent text-white' : active ? 'bg-accent/30 text-accent' : 'bg-white/10 text-slate-500'
-        }`}
-      >
-        {n}
-      </span>
+    <li className={`demo-step ${stateClass}`}>
+      <span className="demo-step-index">{n}</span>
       <div>
-        <div className="font-medium text-slate-200">{title}</div>
-        <p className="mt-1 text-slate-500 text-xs leading-relaxed">{children}</p>
+        <div className="demo-step-title">{title}</div>
+        <p className="demo-step-copy">{children}</p>
       </div>
     </li>
   );
@@ -638,14 +626,18 @@ function Step({
 
 function ReceiptCard({
   receipt,
-  client,
-  recordId,
+  offsign,
+  engine,
+  recordKey,
+  connected,
   subjectLabel,
   onLog,
 }: {
   receipt: Receipt;
-  client: ZombieDeleteClient | null;
-  recordId: string;
+  offsign?: SignedBackendDeletionAttestationV1;
+  engine: DbEngine;
+  recordKey: string;
+  connected: boolean;
   subjectLabel: string;
   onLog: (tone: LogLine['tone'], text: string) => void;
 }) {
@@ -654,12 +646,21 @@ function ReceiptCard({
   const [pdfError, setPdfError] = useState<string | null>(null);
 
   const downloadPdf = async () => {
-    if (!client) return;
     setPdfBusy(true);
     setPdfError(null);
     try {
-      const subject = await demoSubjectReference(recordId);
-      await client.downloadAuditPdf(subject, `deletion-audit-${recordId}.pdf`);
+      const blob = await downloadDeletionCertificatePdf({
+        engine,
+        recordKey,
+        receipt,
+        signedAttestation: offsign,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `deletion-certificate-${recordKey.replace(/[^a-zA-Z0-9._-]+/g, '_')}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
       onLog('ok', `PDF certificate downloaded for ${subjectLabel}.`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -671,38 +672,30 @@ function ReceiptCard({
   };
 
   return (
-    <div className="mt-4 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 text-xs">
+    <div className="demo-receipt">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="font-semibold text-accent">Deletion receipt on file</p>
+        <p className="font-semibold text-success">Deletion receipt on file</p>
         <button
           type="button"
           className="demo-btn-ghost px-3 py-1.5 text-xs"
-          disabled={!client || pdfBusy}
+          disabled={!connected || pdfBusy}
           onClick={() => void downloadPdf()}
         >
           {pdfBusy ? 'Generating PDF…' : 'Download PDF certificate'}
         </button>
       </div>
-      <dl className="mt-2 space-y-1 font-mono text-slate-400">
-        <div className="flex justify-between gap-4">
-          <dt>subject</dt>
-          <dd className="text-slate-300">{sum.subjectHex}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt>pre-state</dt>
-          <dd className="text-slate-300">{sum.preHex}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt>post-state</dt>
-          <dd className="text-slate-300">{sum.postHex}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt>proof</dt>
-          <dd className="text-slate-300">{sum.proofLen} bytes</dd>
-        </div>
+      <dl className="mt-3 grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-1.5 font-mono text-[11px]">
+        <dt className="text-zinc-500">subject</dt>
+        <dd className="break-all text-zinc-200">{sum.subjectHex}</dd>
+        <dt className="text-zinc-500">pre-state</dt>
+        <dd className="break-all text-zinc-200">{sum.preHex}</dd>
+        <dt className="text-zinc-500">post-state</dt>
+        <dd className="break-all text-zinc-200">{sum.postHex}</dd>
+        <dt className="text-zinc-500">proof</dt>
+        <dd className="text-zinc-200">{sum.proofLen > 0 ? `${sum.proofLen} bytes` : 'n/a'}</dd>
       </dl>
-      {!client ? (
-        <p className="mt-2 text-slate-500">Connect the canister to download the PDF.</p>
+      {!connected ? (
+        <p className="mt-2 text-zinc-500">MKTd03 requis pour le certificat PDF via votre API.</p>
       ) : null}
       {pdfError ? <p className="mt-3 text-danger">{pdfError}</p> : null}
     </div>

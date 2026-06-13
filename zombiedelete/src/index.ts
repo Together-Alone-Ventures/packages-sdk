@@ -1,8 +1,36 @@
-export { ZombieDeleteClient, type Mktd03Actor, type ZombieDeleteConnectOptions } from './client.js';
-export { buildAuditorToken, downloadPdfBytes } from './audit.js';
-export { mktd03IdlFactory } from './idl.js';
-export { preflightCommercial, assertCommercialPreflight } from './preflightCommercial.js';
-export { guardRestoreAgainstMktd03, type GuardRestoreAgainstMktd03Params } from './restoreGuard.js';
+/**
+ * @deprecated Use `@together-alone/zombiedelete-server` — API-only OffSign SDK.
+ * This package re-exports the server API for backward compatibility.
+ */
+export {
+  offsign,
+  issueAttestedDeletionReceipt,
+  attestDeletionProof,
+  issueDeletionCertificate,
+  guardRestoreAgainstMktd03,
+  queryMktd03Receipt,
+  queryMktd03Status,
+  type OffsignInput,
+  type IssueAttestedDeletionReceiptParams,
+  type AttestDeletionProofParams,
+  type IssueDeletionCertificateParams,
+  type IssueDeletionCertificateResult,
+  type GuardRestoreAgainstMktd03Params,
+  type RestoreGuardClient,
+  type DeletionAuditMetadata,
+  type IssuanceProgress,
+  type ReceiptLookup,
+  type DeletionDatabaseCheckResult,
+  type Receipt,
+  type SignedBackendDeletionAttestationV1,
+  type OffsignDatabaseVerification,
+  type WiredDeletionDatabaseType,
+  type WiredDeletionProps,
+  type RestoreGuardResult,
+  type RestoreGuardPolicy,
+  OffsignDeletionNotVerifiedError,
+} from '@together-alone/zombiedelete-server';
+
 export {
   checkDeclaredDeletionInDatabase,
   createDatabaseVerifier,
@@ -10,22 +38,12 @@ export {
   createMysqlVerifier,
   createPostgresVerifier,
   createWiredDeletionVerifier,
-  offsign,
+  preflightCommercial,
+  assertCommercialPreflight,
   type DatabaseVerifier,
-  type OffsignInput,
-  type WiredDeletionProps,
-} from '@together-alone/zombiedelete-server';
-export type { AllowanceStatusView, SecurityStatusView } from './commercial.js';
-export type { RestoreGuardPolicy } from '@together-alone/zombiedelete-core';
-export {
-  createSigningSession,
-  formatControllerRejectError,
-  isLocalReplicaHost,
-  resolveAgentHost,
-  type SigningMode,
-  type SigningOptions,
-  type SigningSession,
-} from './signing.js';
+  type AllowanceStatusView,
+  type SecurityStatusView,
+} from '@together-alone/zombiedelete-server/internal';
 
 export {
   verifyAttestationChain,
@@ -42,18 +60,7 @@ export {
   auditErrorLabel,
   TOMBSTONE_DELETION_STATE,
   OffSignCommercialError,
+  type BackendDeletionAttestationV1,
+  type SecurityPreflightResult,
+  type OffSignCommercialErrorCode,
 } from '@together-alone/zombiedelete-core';
-
-export type {
-  BackendDeletionAttestationV1,
-  DeletionAuditMetadata,
-  IssueAttestedDeletionReceiptParams,
-  IssueDeletionReceiptParams,
-  IssuanceProgress,
-  Receipt,
-  ReceiptLookup,
-  SignedBackendDeletionAttestationV1,
-  RestoreGuardResult,
-  SecurityPreflightResult,
-  OffSignCommercialErrorCode,
-} from './types.js';

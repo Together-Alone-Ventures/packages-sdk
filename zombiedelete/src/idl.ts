@@ -217,6 +217,14 @@ export const mktd03IdlFactory: IDL.InterfaceFactory = ({ IDL }) => {
     Err: AuditRecordApiError,
   });
 
+  const SecurityStatus = IDL.Variant({
+    operational: IDL.Null,
+    dev_bypass: IDL.Null,
+    clone_suspected: IDL.Null,
+    init_rejected: IDL.Null,
+    not_configured: IDL.Null,
+  });
+
   const CommercialStatus = IDL.Variant({
     operational: IDL.Null,
     awaiting_first_injection: IDL.Null,
@@ -226,6 +234,7 @@ export const mktd03IdlFactory: IDL.InterfaceFactory = ({ IDL }) => {
     clone_suspected: IDL.Null,
     init_rejected: IDL.Null,
     dev_bypass: IDL.Null,
+    not_configured: IDL.Null,
   });
 
   const CommercialApiError = IDL.Variant({
@@ -253,7 +262,8 @@ export const mktd03IdlFactory: IDL.InterfaceFactory = ({ IDL }) => {
   });
 
   const SecuritySurface = IDL.Record({
-    commercial_status: CommercialStatus,
+    security_status: SecurityStatus,
+    commercial_status: IDL.Opt(CommercialStatus),
     deployment_id: IDL.Opt(IDL.Text),
     org_id: IDL.Opt(IDL.Text),
     module_hash: IDL.Opt(IDL.Vec(IDL.Nat8)),

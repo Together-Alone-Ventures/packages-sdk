@@ -60,4 +60,22 @@ describe('protocol', () => {
     expect(sum.proofLen).toBe(3);
     expect(asBytes(receipt.core_transition_evidence.tree_proof).length).toBe(3);
   });
+
+  it('receiptSummary decodes Express JSON object blobs', () => {
+    const receipt = {
+      protocol_version: { major: 1, minor: 0, patch: 0 },
+      receipt_version: { major: 1, minor: 0, patch: 0 },
+      core_transition_evidence: {
+        subject_reference: { 0: 0xab, 1: 0xcd },
+        pre_state_commitment: { 0: 0xaa },
+        post_state_commitment: { 0: 0xbb },
+        transition_material: [],
+        tree_proof: { 0: 9, 1: 9, 2: 9 },
+        deletion_state_material: {},
+      },
+    } as unknown as Receipt;
+    const sum = receiptSummary(receipt);
+    expect(sum.subjectHex).toBe('abcd');
+    expect(sum.proofLen).toBe(3);
+  });
 });

@@ -26,7 +26,8 @@ describe('preflightCommercial', () => {
         },
         {
           Ok: {
-            commercial_status: { operational: null },
+            security_status: { operational: null },
+            commercial_status: [{ operational: null }],
             deployment_id: [],
             org_id: [],
             module_hash: [],
@@ -55,11 +56,12 @@ describe('preflightCommercial', () => {
         },
         {
           Ok: {
-            commercial_status: { exhausted: null },
+            security_status: { operational: null },
+            commercial_status: [{ exhausted: null }],
             deployment_id: [],
             org_id: [],
             module_hash: [],
-            blocked_reason: ['exhausted'],
+            blocked_reason: ['commercial_gate_failed'],
             can_emit: false,
           },
         }
@@ -76,5 +78,39 @@ describe('preflightCommercial', () => {
       mockActor({ Err: { commercial_disabled: null } }, { Err: { commercial_disabled: null } })
     );
     expect(result.ok).toBe(true);
+  });
+
+  it('passes security-only when billing not configured but security can_emit', async () => {
+    const result = await preflightCommercial(
+      mockActor(
+        {
+          Ok: {
+            commercial_status: { not_configured: null },
+            remaining: 0n,
+            reserved: 0n,
+            allowance_seq: 0n,
+            deployment_id: [],
+            org_id: [],
+            dev_bypass: false,
+          },
+        },
+        {
+          Ok: {
+            security_status: { dev_bypass: null },
+            commercial_status: [],
+            deployment_id: ['dev-bypass'],
+            org_id: ['dev-bypass'],
+            module_hash: [],
+            blocked_reason: [],
+            can_emit: true,
+          },
+        }
+      )
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.allowance.commercialStatus).toBe('not_applicable');
+      expect(result.allowance.canEmit).toBe(true);
+    }
   });
 });

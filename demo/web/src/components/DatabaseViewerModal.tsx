@@ -10,9 +10,17 @@ type Props = {
   snapshot: DbSnapshot;
   engine: DbEngine;
   onEngineChange: (engine: DbEngine) => void;
+  removedCount?: number;
 };
 
-export function DatabaseViewerModal({ open, onClose, snapshot, engine, onEngineChange }: Props) {
+export function DatabaseViewerModal({
+  open,
+  onClose,
+  snapshot,
+  engine,
+  onEngineChange,
+  removedCount = 0,
+}: Props) {
 
   if (!open) return null;
 
@@ -58,11 +66,11 @@ export function DatabaseViewerModal({ open, onClose, snapshot, engine, onEngineC
         </div>
 
         {engine === 'mysql' ? (
-          <MysqlViewer rows={snapshot.mysql} />
+          <MysqlViewer rows={snapshot.mysql} removedCount={removedCount} />
         ) : engine === 'postgres' ? (
-          <PostgresViewer rows={snapshot.postgres} />
+          <PostgresViewer rows={snapshot.postgres} removedCount={removedCount} />
         ) : (
-          <MongoViewer documents={snapshot.mongo} />
+          <MongoViewer documents={snapshot.mongo} removedCount={removedCount} />
         )}
       </div>
     </div>

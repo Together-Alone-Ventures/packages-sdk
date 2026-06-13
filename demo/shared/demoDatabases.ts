@@ -1,6 +1,7 @@
 /** Simulated rows/documents across MySQL, PostgreSQL, and MongoDB (demo UI). */
 
 import type { DbEngine } from './dbEngine';
+import { DEMO_COMPANY } from './company';
 
 export type RecordErasureState = {
   ui: string;
@@ -33,14 +34,14 @@ export type MysqlPiiRow = {
   created_at: string;
 };
 
-export const MYSQL_TABLE = 'conference_pii';
-export const MYSQL_SCHEMA = 'infoshare_platform';
+export const MYSQL_TABLE = 'customer_pii';
+export const MYSQL_SCHEMA = DEMO_COMPANY.mysqlSchema;
 
 export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:badge-48291-anna-kowalska',
     id: 48291,
-    category: 'Attendee',
+    category: 'Customer',
     full_name: 'Anna Kowalska',
     email: 'anna.kowalska@example.com',
     company: 'Baltic FinTech Sp. z o.o.',
@@ -62,7 +63,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:expo-lead-innovation-village-12',
     id: 12004,
-    category: 'Expo',
+    category: 'Lead',
     full_name: 'Sofia Lindgren',
     email: 'sofia@startup-innovation.demo',
     company: 'Innovation Village booth #12',
@@ -73,7 +74,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:attendee-12018-piotr-winiewski',
     id: 12018,
-    category: 'Attendee',
+    category: 'Customer',
     full_name: 'Piotr Wiśniewski',
     email: 'piotr.w@corp.demo',
     company: 'CloudScale PL',
@@ -84,7 +85,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:sponsor-9001-elena-varga',
     id: 9001,
-    category: 'Sponsor',
+    category: 'Partner',
     full_name: 'Elena Varga',
     email: 'elena.varga@sponsor-hub.demo',
     company: 'Amber Sponsor Lounge',
@@ -106,7 +107,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:attendee-48302-lena-hoffmann',
     id: 48302,
-    category: 'Attendee',
+    category: 'Customer',
     full_name: 'Lena Hoffmann',
     email: 'lena.hoffmann@saas.demo',
     company: 'Nordic SaaS Collective',
@@ -117,7 +118,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:attendee-48315-toms-rivera',
     id: 48315,
-    category: 'Attendee',
+    category: 'Customer',
     full_name: 'Tomás Rivera',
     email: 'tomas.rivera@devops.demo',
     company: 'KubeShip',
@@ -150,7 +151,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:attendee-48401-yuki-tanaka',
     id: 48401,
-    category: 'Attendee',
+    category: 'Customer',
     full_name: 'Yuki Tanaka',
     email: 'yuki.tanaka@mobility.demo',
     company: 'Mobility Labs JP',
@@ -172,7 +173,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:attendee-48455-oliver-grant',
     id: 48455,
-    category: 'Attendee',
+    category: 'Customer',
     full_name: 'Oliver Grant',
     email: 'oliver.grant@vc.demo',
     company: 'Baltic Ventures',
@@ -183,7 +184,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:expo-48510-karolina-zieliska',
     id: 48510,
-    category: 'Expo',
+    category: 'Lead',
     full_name: 'Karolina Zielińska',
     email: 'karolina@cybersec-booth.demo',
     company: 'CyberSec Alley #7',
@@ -194,7 +195,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:attendee-48567-david-kim',
     id: 48567,
-    category: 'Attendee',
+    category: 'Customer',
     full_name: 'David Kim',
     email: 'david.kim@healthtech.demo',
     company: 'MedFlow',
@@ -205,10 +206,10 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:volunteer-48602-maja-nowicka',
     id: 48602,
-    category: 'Volunteer',
+    category: 'Staff',
     full_name: 'Maja Nowicka',
-    email: 'maja.nowicka@infoshare-volunteer.demo',
-    company: 'Infoshare Crew',
+    email: 'maja.nowicka@meridian-ops.demo',
+    company: 'Meridian Ops',
     pass_type: 'Staff',
     payload_summary: 'zone=registration, shift=day1_am',
     created_at: '2026-05-19 18:00:00',
@@ -218,7 +219,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
     id: 48644,
     category: 'Networking',
     full_name: 'Speed dating block B',
-    email: 'matchmaking@infoshare.internal',
+    email: 'scheduling@meridian.internal',
     company: 'platform',
     pass_type: 'slot_batch',
     payload_summary: '12_pairings, mutual_opt_in_only',
@@ -227,7 +228,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:sponsor-48701-henrik-larsson',
     id: 48701,
-    category: 'Sponsor',
+    category: 'Partner',
     full_name: 'Henrik Larsson',
     email: 'henrik@sponsor-cloud.demo',
     company: 'CloudPrime Pavilion',
@@ -238,10 +239,10 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:attendee-48788-zofia-kaczmarek',
     id: 48788,
-    category: 'Attendee',
+    category: 'Customer',
     full_name: 'Zofia Kaczmarek',
     email: 'zofia.k@student.demo',
-    company: 'Gdańsk University of Technology',
+    company: 'Riverdale University',
     pass_type: 'Student Pass',
     payload_summary: 'badge_qr, student_id_verified, day_pass=2',
     created_at: '2026-05-20 15:02:19',
@@ -249,7 +250,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:expo-48820-james-wright',
     id: 48820,
-    category: 'Expo',
+    category: 'Lead',
     full_name: 'James Wright',
     email: 'james@dronezone.demo',
     company: 'DroneZone booth #24',
@@ -260,7 +261,7 @@ export const MYSQL_ROWS: MysqlPiiRow[] = [
   {
     recordKey: 'mysql:attendee-48899-isabelle-dubois',
     id: 48899,
-    category: 'Attendee',
+    category: 'Customer',
     full_name: 'Isabelle Dubois',
     email: 'isabelle.dubois@fintech.demo',
     company: 'PayStream FR',
@@ -284,9 +285,9 @@ export type PostgresRow = {
   updated_at: string;
 };
 
-export const PG_DATABASE = 'infoshare_prod';
+export const PG_DATABASE = DEMO_COMPANY.postgresDatabase;
 export const PG_SCHEMA = 'public';
-export const PG_TABLE = 'conference_contacts';
+export const PG_TABLE = 'customer_contacts';
 
 export const POSTGRES_ROWS: PostgresRow[] = [
   {
@@ -360,7 +361,7 @@ export const POSTGRES_ROWS: PostgresRow[] = [
     id: 'cnt_sync_01',
     source: 'crm_webhook',
     contact_name: 'HubSpot sync batch',
-    contact_email: 'integration@infoshare.internal',
+    contact_email: 'integration@meridian.internal',
     org: 'marketing',
     interaction_type: 'batch_sync',
     metadata: '{"records":142,"pii_fields":["email","phone"]}',
@@ -448,8 +449,8 @@ export const POSTGRES_ROWS: PostgresRow[] = [
     id: 'cnt_48602',
     source: 'volunteer_hub',
     contact_name: 'Maja Nowicka',
-    contact_email: 'maja.nowicka@infoshare-volunteer.demo',
-    org: 'Infoshare Crew',
+    contact_email: 'maja.nowicka@meridian-ops.demo',
+    org: 'Meridian Ops',
     interaction_type: 'shift_assigned',
     metadata: '{"zone":"registration","shift":"day1_am"}',
     updated_at: '2026-05-19 18:00:00+02',
@@ -459,7 +460,7 @@ export const POSTGRES_ROWS: PostgresRow[] = [
     id: 'cnt_48644',
     source: 'matchmaking',
     contact_name: 'Speed dating block B',
-    contact_email: 'matchmaking@infoshare.internal',
+    contact_email: 'scheduling@meridian.internal',
     org: 'platform',
     interaction_type: 'batch_pairing',
     metadata: '{"pairs":12,"mutual_only":true}',
@@ -482,7 +483,7 @@ export const POSTGRES_ROWS: PostgresRow[] = [
     source: 'registration',
     contact_name: 'Zofia Kaczmarek',
     contact_email: 'zofia.k@student.demo',
-    org: 'Gdańsk University of Technology',
+    org: 'Riverdale University',
     interaction_type: 'student_pass',
     metadata: '{"verified":true,"days":2}',
     updated_at: '2026-05-20 15:02:19+02',
@@ -547,8 +548,8 @@ export type MongoDocument = {
   doc: Record<string, unknown>;
 };
 
-export const MONGO_CLUSTER = 'infoshare-prod.abc12.mongodb.net';
-export const MONGO_DATABASE = 'infoshare_platform';
+export const MONGO_CLUSTER = DEMO_COMPANY.mongoCluster;
+export const MONGO_DATABASE = DEMO_COMPANY.mongoDatabase;
 
 export const MONGO_COLLECTIONS: MongoCollection[] = [
   { name: 'attendee_profiles', documentCount: 12 },
@@ -694,7 +695,7 @@ export const MONGO_DOCUMENTS: MongoDocument[] = [
       badgeId: 48788,
       name: 'Zofia Kaczmarek',
       email: 'zofia.k@student.demo',
-      company: 'Gdańsk University of Technology',
+      company: 'Riverdale University',
       pass: 'Student Pass',
       studentVerified: true,
     },
@@ -883,10 +884,10 @@ export function deletableRemovedCount(
 }
 
 function mongoCategory(collection: string): string {
-  if (collection === 'attendee_profiles') return 'Attendee';
-  if (collection === 'networking_sessions') return 'Networking';
-  if (collection === 'expo_leads') return 'Expo';
-  if (collection === 'workshop_rsvp') return 'Workshop';
+  if (collection === 'attendee_profiles') return 'Customer';
+  if (collection === 'networking_sessions') return 'Meeting';
+  if (collection === 'expo_leads') return 'Lead';
+  if (collection === 'workshop_rsvp') return 'Training';
   return collection;
 }
 
@@ -952,6 +953,13 @@ export function allDeletableTargets(): { engine: DbEngine; key: string }[] {
   const engines: DbEngine[] = ['mysql', 'postgres', 'mongo'];
   return engines.flatMap((engine) =>
     deletableRecordKeys(engine).map((key) => ({ engine, key }))
+  );
+}
+
+export function allDeletableTargetsFromSnapshot(snapshot: DbSnapshot): { engine: DbEngine; key: string }[] {
+  const engines: DbEngine[] = ['mysql', 'postgres', 'mongo'];
+  return engines.flatMap((engine) =>
+    deletableRecordKeysFromSnapshot(engine, snapshot).map((key) => ({ engine, key }))
   );
 }
 

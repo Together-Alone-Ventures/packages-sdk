@@ -1,7 +1,7 @@
 {
   "name": "@together-alone/zombiedelete",
   "version": "0.1.0",
-  "description": "Browser / React SDK for MKTd03 — connect to the canister, issue deletion receipts, download audit PDFs.",
+  "description": "Deprecated alias — use @together-alone/zombiedelete-server (API-only OffSign SDK).",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -9,10 +9,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./vite": {
-      "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
     }
   },
   "files": ["dist", "README.md"],

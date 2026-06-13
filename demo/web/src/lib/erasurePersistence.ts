@@ -1,9 +1,10 @@
 import type { DbEngine } from '@demo-shared/dbEngine';
-import type { Receipt } from './types';
+import type { Receipt, SignedBackendDeletionAttestationV1 } from '@together-alone/zombiedelete-core';
 
 export type PersistedRecordState = {
   ui: string;
   receipt?: Receipt;
+  offsign?: SignedBackendDeletionAttestationV1;
   lastError?: string;
 };
 

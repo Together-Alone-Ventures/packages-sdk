@@ -1,103 +1,101 @@
 import type { DbEngine } from '../../shared/dbEngine.js';
-import type { VerifyDeletionContext } from '@together-alone/zombiedelete-server';
+import type { WiredDeletionData } from '@together-alone/zombiedelete-core';
 import {
-  createDatabaseVerifier,
   createWiredDeletionVerifier,
   type DatabaseVerifier,
-} from '@together-alone/zombiedelete-server';
+} from '@together-alone/zombiedelete-server/internal';
+import { demoStorageMode, MONGO_COLLECTION, MYSQL_TABLE, POSTGRES_TABLE } from './config.js';
+import { getMongoCollection, getMysqlPool, getPostgresPool } from './db/pools.js';
 import { recordAbsent } from './store.js';
 
-/** Demo stand-in for a real DB pool handle (production: pass `pg.Pool`, `mysql2` pool, Mongo client). */
-export type DemoDatabaseConnection = {
-  kind: 'demo-json-store';
-  engine: DbEngine;
-  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
-  execute: (sql: string, params?: unknown[]) => Promise<[unknown[], unknown]>;
-  findOne: (filter: Record<string, unknown>) => Promise<unknown | null>;
+export type WiredDeletionTarget = {
+  connection: unknown;
+  databaseType: DbEngine;
+  tableOrCollection: string;
+  data: WiredDeletionData;
 };
 
-export function createDemoWiredConnection(engine: DbEngine, recordKey: string): DemoDatabaseConnection {
+export function wiredDeletionTarget(engine: DbEngine, recordKey: string): WiredDeletionTarget {
+  if (demoStorageMode() === 'real') {
+    return realWiredTarget(engine, recordKey);
+  }
+  return jsonWiredTarget(engine, recordKey);
+}
+
+function jsonWiredTarget(engine: DbEngine, recordKey: string): WiredDeletionTarget {
   const readAbsent = () => recordAbsent(engine, recordKey);
-  return {
-    kind: 'demo-json-store',
+  const connection = {
+    kind: 'demo-json-store' as const,
     engine,
-    query: async () => ({ rows: readAbsent() ? [] : [{ found: 1 }] }),
-    execute: async () => [readAbsent() ? [] : [{ found: 1 }], []],
-    findOne: async () => (readAbsent() ? null : { _id: recordKey }),
+    query: async () => ({ rows: (await readAbsent()) ? [] : [{ found: 1 }] }),
+    execute: async () => [(await readAbsent()) ? [] : [{ found: 1 }], []],
+    findOne: async () => ((await readAbsent()) ? null : { _id: recordKey }),
+  };
+  return {
+    connection,
+    databaseType: engine,
+    tableOrCollection: tableForEngine(engine),
+    data: { keyField: 'record_key', keyValue: recordKey },
   };
 }
 
-/** @deprecated Use createDemoWiredConnection(engine, recordKey) */
-export function createDemoDatabaseConnection(engine: DbEngine): DemoDatabaseConnection {
-  return createDemoWiredConnection(engine, '');
+function realWiredTarget(engine: DbEngine, recordKey: string): WiredDeletionTarget {
+  if (engine === 'mysql') {
+    return {
+      connection: getMysqlPool(),
+      databaseType: 'mysql',
+      tableOrCollection: MYSQL_TABLE,
+      data: { keyField: 'record_key', keyValue: recordKey },
+    };
+  }
+  if (engine === 'postgres') {
+    return {
+      connection: getPostgresPool(),
+      databaseType: 'postgres',
+      tableOrCollection: POSTGRES_TABLE,
+      data: { keyField: 'record_key', keyValue: recordKey },
+    };
+  }
+  return {
+    connection: {
+      findOne: async (filter: Record<string, unknown>) => {
+        const coll = await getMongoCollection();
+        return coll.findOne(filter);
+      },
+    },
+    databaseType: 'mongo',
+    tableOrCollection: MONGO_COLLECTION,
+    data: { record_key: recordKey },
+  };
 }
 
-/**
- * Demo databaseVerifier — wires a connection object + read-after-delete check.
- * Production: replace with createPostgresVerifier({ connection: pool, resolveQuery: ... }).
- */
+function tableForEngine(engine: DbEngine): string {
+  if (engine === 'mysql') return MYSQL_TABLE;
+  if (engine === 'postgres') return POSTGRES_TABLE;
+  return MONGO_COLLECTION;
+}
+
+/** @deprecated Use wiredDeletionTarget */
+export function createDemoWiredConnection(engine: DbEngine, recordKey: string) {
+  const target = jsonWiredTarget(engine, recordKey);
+  return {
+    kind: 'demo-json-store' as const,
+    engine,
+    query: (target.connection as { query: () => Promise<{ rows: unknown[] }> }).query,
+    execute: (target.connection as { execute: () => Promise<[unknown[], unknown]> }).execute,
+    findOne: (target.connection as { findOne: () => Promise<unknown | null> }).findOne,
+  };
+}
+
 export function createDemoDatabaseVerifier(
   engine: DbEngine,
-  recordKey: string,
-  connection: DemoDatabaseConnection
-): DatabaseVerifier<DemoDatabaseConnection> {
-  return createDatabaseVerifier({
-    engine,
-    connection,
-    verifyAbsent: async (_ctx: VerifyDeletionContext) => {
-      const absent = recordAbsent(engine, recordKey);
-      return {
-        absent,
-        checkedAtUnixMs: Date.now(),
-        detail: absent ? undefined : 'row_still_present',
-      };
-    },
-  });
-}
-
-/**
- * Production-shaped API using createWiredDeletionVerifier.
- * Demo substitutes JSON store via a pool-like connection wrapper.
- */
-export function createDemoWiredVerifier(
-  engine: DbEngine,
-  recordKey: string,
-  connection: DemoDatabaseConnection
-): DatabaseVerifier<DemoDatabaseConnection> {
+  recordKey: string
+): DatabaseVerifier {
+  const target = wiredDeletionTarget(engine, recordKey);
   return createWiredDeletionVerifier({
-    connection: {
-      query: async () => ({ rows: recordAbsent(engine, recordKey) ? [] : [{ found: 1 }] }),
-      execute: async () => [recordAbsent(engine, recordKey) ? [] : [{ found: 1 }], []],
-      findOne: async () => (recordAbsent(engine, recordKey) ? null : { _id: recordKey }),
-    },
-    databaseType: engine,
-    tableOrCollection: `${engine}_records`,
-    data: { keyField: 'record_key', keyValue: recordKey },
-  }) as DatabaseVerifier<DemoDatabaseConnection>;
-}
-
-/**
- * PostgreSQL production pattern (documented for integrators):
- * ```ts
- * createPostgresVerifier({
- *   connection: pool,
- *   resolveQuery: (ctx) => ({
- *     sql: 'SELECT 1 FROM conference_pii WHERE record_key = $1',
- *     params: [recordKeyFrom(ctx)],
- *   }),
- * });
- * ```
- */
-export async function verifyPostgresDeletionAbsent(params: {
-  recordKey: string;
-  sourceLocator?: string;
-}): Promise<{ absent: boolean; detail?: string; checkedAtUnixMs: number }> {
-  const absent = recordAbsent('postgres', params.recordKey);
-  return {
-    absent,
-    checkedAtUnixMs: Date.now(),
-    detail: absent
-      ? undefined
-      : `postgres_row_still_visible:${params.sourceLocator ?? params.recordKey}`,
-  };
+    connection: target.connection,
+    databaseType: target.databaseType,
+    tableOrCollection: target.tableOrCollection,
+    data: target.data,
+  });
 }

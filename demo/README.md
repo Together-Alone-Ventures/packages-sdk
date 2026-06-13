@@ -1,62 +1,81 @@
 # OffSign SDK demo
 
-End-to-end booth demo: **local JSON databases** (MySQL / PostgreSQL / MongoDB simulators) + **minimal API** (`offsign` with `verifyDeletion`) + **React UI** issuing **backend-attested** MKTd03 receipts.
+Démo bout-en-bout : **MySQL / PostgreSQL / MongoDB** + API (`offsign` → `issueAttestedDeletionReceipt`) + UI React.
 
-Uses the monorepo SDK packages via workspaces (no npm publish required).
+Deux modes de stockage :
+
+| Mode | Variable | Usage |
+|------|----------|--------|
+| **JSON** (défaut) | `DEMO_STORAGE_MODE=json` | Salon / sans Docker — fichiers `api/data/*.json` |
+| **Réel** | `DEMO_STORAGE_MODE=real` | Tests intégration — vrais SGBD via `docker compose` |
 
 ## Architecture
 
 ```text
-demo/web (React + @together-alone/zombiedelete)
-   │  DELETE /demo-api/api/:engine/records/:key
+demo/web (React + zombiedelete-core / API)
+   │  POST .../prove-deletion
    ▼
 demo/api (Express + @together-alone/zombiedelete-server)
-   │  offsign({ verifyDeletion }) — Postgres example in verifyDeletion.ts
-   │  returns { offsign: signed attestation } (+ legacy goneproof alias)
+   │  DELETE réel + offsign({ connection, databaseType, tableOrCollection, data })
+   │  issueAttestedDeletionReceipt → MKTd03
    ▼
-web → preflightCommercial → issueAttestedDeletionReceipt() → MKTd03
-   │  POST /api/check-declared-deletion (post-receipt reconciliation)
-   ▼
-restore → guardRestoreAgainstMktd03 + POST .../restore (409 if blocked)
+Postgres 5433 · MySQL 3307 · Mongo 27018  (mode real)
 ```
 
-## Prerequisites
+## Prérequis
 
 - Node 18+
-- `dfx` local replica (or IC host) + deployed MKTd03 canister id
-- SDK packages built: from `packages-sdk/` run `npm run build`
+- `dfx` local + canister MKTd03 — ID dans **`demo/api/.env`** : `MKTD03_CANISTER_ID=…`
+- SDK build : `cd packages-sdk && npm run build`
+- Clés dans `demo/shared/` :
+  - `local-dev-ic-identity.json` — contrôleur IC pour l’émission
+  - `local-dev-auditor-hmac-key.json` — PDF (optionnel)
 
-Copy dev keys into `demo/shared/` (or use your own):
-
-- `local-dev-ic-identity.json` — IC controller for issuance
-- `local-dev-auditor-hmac-key.json` — PDF auditor token
-
-`local-dev-backend-identity.json` is auto-generated on first API start (backend attestation signer).
-
-## Run
-
-Terminal 1 — API (port 8787):
+## Mode réel (Postgres + MySQL + Mongo)
 
 ```bash
-cd packages-sdk/demo/api && npm install && npm run dev
+cd packages-sdk/demo
+docker compose up -d          # ou npm run db:up
+cd api && npm install
+cp .env.example .env          # DEMO_STORAGE_MODE=real
+npm run db:seed
+npm run dev:real              # API avec auto-seed au démarrage
 ```
 
-Terminal 2 — Web (port 5174):
+Terminal 2 — Web :
 
 ```bash
-cd packages-sdk/demo/web && npm install
-cp .env.example .env
-npm run dev
+cd packages-sdk/demo/web && npm run dev
 ```
 
-Open http://localhost:5174 — paste any MKTd03 canister id and **Connect**.
+Ouvrir http://localhost:5174 — **Connect** (l’ID vient de `MKTD03_CANISTER_ID` sur l’API).
 
-## Reset databases
+### Reset
 
 ```bash
 curl -X POST http://127.0.0.1:8787/api/reset
 ```
 
-## Postgres verifyDeletion example
+Réensemence les 3 BDD (mode real) ou les JSON (mode json).
 
-See `demo/api/src/verifyDeletion.ts` — `verifyPostgresDeletionAbsent()` documents the production SQL pattern; the demo uses `postgres.json` as a stand-in.
+## Mode JSON (sans Docker)
+
+```bash
+cd packages-sdk/demo/api && npm run dev
+cd packages-sdk/demo/web && npm run dev
+```
+
+## Erreurs fréquentes
+
+**« This row is not in the backend database anymore »**  
+État UI désynchronisé : **Reset demo DB** dans l’UI + `curl -X POST …/api/reset`.
+
+**`get_allowance_status` / IC0536 method not found**  
+Mauvais canister ID (ex. canister dfx générique). Utilisez l’ID **MKTd03** du deploy portail. La connexion appelle `get_tree_mode_status` pour valider l’ID.
+
+**Preflight commercial**  
+Sur un vrai MKTd03 local, l’allowance initiale est injectée par le portail. Pour tester offsign seul : `DEMO_SKIP_MKTD03_PREFLIGHT=1` dans `api/.env`.
+
+## Postgres verifyDeletion (production)
+
+Voir `api/src/verifyDeletion.ts` — en mode `real`, le SDK utilise `createWiredDeletionVerifier` avec `pg.Pool`, `mysql2`, `mongodb`.

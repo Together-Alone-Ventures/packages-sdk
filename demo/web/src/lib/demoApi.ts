@@ -11,15 +11,19 @@ const API_BASE =
 export type DemoApiConfig = {
   backendPublicKeyHex: string;
   subjectPrefix: string;
+  storageMode?: 'json' | 'real';
+  mktd03CanisterId?: string | null;
+  icHost?: string;
+  skipMktd03Preflight?: boolean;
 };
 
 export type DeleteRecordResult = {
   ok: true;
   engine: DbEngine;
   recordKey: string;
-  offsign: import('@together-alone/zombiedelete').SignedBackendDeletionAttestationV1;
+  offsign: import('@together-alone/zombiedelete-server').SignedBackendDeletionAttestationV1;
   /** @deprecated use `offsign` */
-  goneproof?: import('@together-alone/zombiedelete').SignedBackendDeletionAttestationV1;
+  goneproof?: import('@together-alone/zombiedelete-server').SignedBackendDeletionAttestationV1;
   backendPublicKeyHex: string;
 };
 
@@ -52,6 +56,10 @@ export async function fetchDemoApiConfig(): Promise<DemoApiConfig> {
   return {
     backendPublicKeyHex: data.backendPublicKeyHex,
     subjectPrefix: data.subjectPrefix,
+    storageMode: data.storageMode,
+    mktd03CanisterId: data.mktd03CanisterId,
+    icHost: data.icHost,
+    skipMktd03Preflight: data.skipMktd03Preflight,
   };
 }
 
@@ -109,7 +117,7 @@ export async function checkDeclaredDeletionViaApi(params: {
   engine: DbEngine;
   recordKey: string;
   signedAttestation: DeleteRecordResult['offsign'];
-  receipt?: import('@together-alone/zombiedelete').Receipt;
+  receipt?: import('@together-alone/zombiedelete-core').Receipt;
 }): Promise<DeclaredDeletionCheckResult> {
   const data = await parseJson<{ ok: true; check: DeclaredDeletionCheckResult }>(
     await fetch(`${API_BASE}/api/check-declared-deletion`, {
@@ -146,4 +154,36 @@ export async function restoreRecordViaApi(
 
 export async function resetDemoDatabases(): Promise<void> {
   await parseJson(await fetch(`${API_BASE}/api/reset`, { method: 'POST' }));
+}
+
+export async function downloadDeletionCertificatePdf(params: {
+  engine: DbEngine;
+  recordKey: string;
+  receipt: import('@together-alone/zombiedelete-core').Receipt;
+  /** Optionnel : l’API garde l’attestation en cache après prove-deletion. */
+  signedAttestation?: import('@together-alone/zombiedelete-server').SignedBackendDeletionAttestationV1;
+}): Promise<Blob> {
+  const res = await fetch(
+    `${API_BASE}/api/${params.engine}/records/${encodeURIComponent(params.recordKey)}/deletion-certificate`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        receipt: params.receipt,
+        ...(params.signedAttestation ? { signedAttestation: params.signedAttestation } : {}),
+      }),
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    let message = text || res.statusText;
+    try {
+      const body = JSON.parse(text) as { message?: string; error?: string };
+      message = body.message ?? body.error ?? message;
+    } catch {
+      // plain text
+    }
+    throw new Error(message);
+  }
+  return res.blob();
 }

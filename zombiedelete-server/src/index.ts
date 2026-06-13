@@ -1,60 +1,45 @@
+/**
+ * Public OffSign server API — four integrator entry points:
+ * - offsign() after DELETE
+ * - issueAttestedDeletionReceipt() on-chain CVDR after offsign
+ * - attestDeletionProof() from CVDR receipt + DB re-read
+ * - issueDeletionCertificate() PDF after DB re-read
+ */
+export { offsign, type OffsignInput } from './offsign.js';
 export {
-  buildGoneproofDeletePayload,
-  offsign,
-  type BuildGoneproofDeletePayloadInput,
-  type GoneproofDeletePayload,
-  type OffsignInput,
-} from './offsign.js';
-export { checkDeclaredDeletionInDatabase } from './checkDeclaredDeletionInDatabase.js';
+  issueAttestedDeletionReceipt,
+  queryMktd03Receipt,
+  queryMktd03Status,
+  type Mktd03IssuanceActor,
+} from './issueAttestedDeletionReceipt.js';
+export { attestDeletionProof, type AttestDeletionProofParams } from './attestDeletionProof.js';
 export {
-  assertDatabaseVerifier,
-  createDatabaseVerifier,
-  createMongoVerifier,
-  createMysqlVerifier,
-  createPostgresVerifier,
-  createTestDatabaseVerifier,
-  createWiredDeletionVerifier,
-  buildSqlAbsentCheckQuery,
-  hasWiredDeletionProps,
-  resolveDatabaseVerifier,
-  runDatabaseAbsentCheck,
-  verifyDeletionContextFromOffsignInput,
-  OffsignInvalidDatabaseIdentifierError,
-  type CreateWiredDeletionVerifierParams,
-  type MongoFindable,
-  type MysqlQueryable,
-  type PostgresQueryable,
-} from './databaseVerifier.js';
+  issueDeletionCertificate,
+  type IssueDeletionCertificateParams,
+  type IssueDeletionCertificateResult,
+} from './issueDeletionCertificate.js';
+export {
+  guardRestoreAgainstMktd03,
+  type GuardRestoreAgainstMktd03Params,
+  type RestoreGuardClient,
+} from './restoreGuard.js';
 
-export {
-  buildBackendDeletionAttestation,
-  signBackendDeletionAttestation,
-  validateBackendDeletionAttestation,
-  canonicalJson,
-  attestationSigningMessage,
-  attestationCanonicalBytes,
-  ATTESTATION_EXTENSION_KEYS,
-  BACKEND_ATTESTATION_SIGN_DOMAIN,
-  sha256,
-  deriveTransitionMaterial,
-  TRANSITION_DERIVATION_VERSION,
-  OffsignDatabaseVerifierRequiredError,
-  OffsignDeletionNotVerifiedError,
+export type {
+  DeletionDatabaseCheckResult,
+  Receipt,
+  SignedBackendDeletionAttestationV1,
+  OffsignDatabaseVerification,
+  WiredDeletionDatabaseType,
+  WiredDeletionProps,
+  RestoreGuardResult,
+  RestoreGuardPolicy,
 } from '@together-alone/zombiedelete-core';
 
 export type {
-  BackendDeletionAttestationV1,
-  SignedBackendDeletionAttestationV1,
-  DatabaseEngine,
-  DatabaseVerifier,
-  OffsignDatabaseVerification,
-  SqlAbsentRecordData,
-  WiredDeletionData,
-  WiredDeletionDatabaseType,
-  WiredDeletionProps,
-  VerifyDeletion,
-  VerifyDeletionResult,
-  VerifyDeletionContext,
-  DeletionDatabaseCheckResult,
-  CheckDeclaredDeletionParams,
-} from '@together-alone/zombiedelete-core';
+  DeletionAuditMetadata,
+  IssueAttestedDeletionReceiptParams,
+  IssuanceProgress,
+  ReceiptLookup,
+} from './issuanceTypes.js';
+
+export { OffsignDeletionNotVerifiedError } from '@together-alone/zombiedelete-core';
