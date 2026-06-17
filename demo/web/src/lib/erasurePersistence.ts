@@ -1,11 +1,13 @@
 import type { DbEngine } from '@demo-shared/dbEngine';
 import type { Receipt, SignedBackendDeletionAttestationV1 } from '@together-alone/zombiedelete-core';
+import type { RecordDisplay } from '@demo-shared/demoDatabases';
 
 export type PersistedRecordState = {
   ui: string;
   receipt?: Receipt;
   offsign?: SignedBackendDeletionAttestationV1;
   lastError?: string;
+  display?: RecordDisplay;
 };
 
 export type PersistedErasureByEngine = Record<
@@ -51,4 +53,15 @@ export function clearErasureState(canisterId: string): void {
   } catch {
     // ignore
   }
+}
+
+/** CVDR receipts stored in browser erasure state (for demo_estimate allowance). */
+export function countCvdrReceipts(erasure: PersistedErasureByEngine): number {
+  let count = 0;
+  for (const engine of ['mysql', 'postgres', 'mongo'] as const) {
+    for (const state of Object.values(erasure[engine] ?? {})) {
+      if (state?.receipt) count += 1;
+    }
+  }
+  return count;
 }

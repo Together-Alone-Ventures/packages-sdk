@@ -2,18 +2,28 @@
 
 import type { DbEngine } from './dbEngine';
 import { DEMO_COMPANY } from './company';
+import { deletionHandleForRow } from './deletionSubject';
 
 export type RecordErasureState = {
   ui: string;
   receipt?: unknown;
   lastError?: string;
+  /** Cached row labels when the record is gone from the live DB snapshot. */
+  display?: RecordDisplay;
+};
+
+export type RecordDisplay = {
+  category: string;
+  label: string;
+  detail: string;
 };
 
 export type RecordsMap = Record<string, RecordErasureState | undefined>;
 
 export type HomeDataItem = {
-  /** Selection id (demo recordKey when erasure applies). */
+  /** Selection id — canonical deletion handle `{engine}/{table}/{keyField}/{value}`. */
   id: string;
+  /** Same as id — kept for API/UI compatibility. */
   recordKey?: string;
   category: string;
   label: string;
@@ -863,27 +873,43 @@ export const MONGO_DOCUMENTS: MongoDocument[] = [
 ];
 
 export function visibleMysqlRows(records: RecordsMap): MysqlPiiRow[] {
-  return MYSQL_ROWS.filter((row) => !row.recordKey || records[row.recordKey]?.ui !== 'deleted');
+  return MYSQL_ROWS.filter((row) => {
+    const handle = deletionHandleForRow('mysql', row);
+    if (!handle) return true;
+    return records[handle]?.ui !== 'deleted';
+  });
 }
 
 export function visiblePostgresRows(records: RecordsMap): PostgresRow[] {
-  return POSTGRES_ROWS.filter((row) => !row.recordKey || records[row.recordKey]?.ui !== 'deleted');
+  return POSTGRES_ROWS.filter((row) => {
+    const handle = deletionHandleForRow('postgres', row);
+    if (!handle) return true;
+    return records[handle]?.ui !== 'deleted';
+  });
 }
 
 export function visibleMongoDocuments(records: RecordsMap): MongoDocument[] {
-  return MONGO_DOCUMENTS.filter((d) => !d.recordKey || records[d.recordKey]?.ui !== 'deleted');
+  return MONGO_DOCUMENTS.filter((d) => {
+    const handle = deletionHandleForRow('mongo', d);
+    if (!handle) return true;
+    return records[handle]?.ui !== 'deleted';
+  });
 }
 
 export function deletableRemovedCount(
-  all: { recordKey?: string }[],
+  engine: DbEngine,
+  all: MysqlPiiRow[] | PostgresRow[] | MongoDocument[],
   records: RecordsMap
 ): { removed: number; deletableTotal: number } {
-  const deletable = all.filter((r) => r.recordKey);
-  const removed = deletable.filter((r) => records[r.recordKey!]?.ui === 'deleted').length;
+  const deletable = all
+    .map((r) => deletionHandleForRow(engine, r))
+    .filter((h): h is string => Boolean(h));
+  const removed = deletable.filter((h) => records[h]?.ui === 'deleted').length;
   return { removed, deletableTotal: deletable.length };
 }
 
 function mongoCategory(collection: string): string {
+  if (collection === 'scenario_records') return 'Record';
   if (collection === 'attendee_profiles') return 'Customer';
   if (collection === 'networking_sessions') return 'Meeting';
   if (collection === 'expo_leads') return 'Lead';
@@ -893,6 +919,11 @@ function mongoCategory(collection: string): string {
 
 function mongoLabel(doc: MongoDocument): string {
   const d = doc.doc;
+  if (doc.collection === 'scenario_records') {
+    const type = typeof d.type === 'string' ? d.type : 'RECORD';
+    const title = typeof d.title === 'string' ? d.title : doc._id;
+    return `${title} · ${type}`;
+  }
   if (doc.collection === 'attendee_profiles' && typeof d.name === 'string') {
     const pass = typeof d.pass === 'string' ? d.pass : 'profile';
     return `${d.name} · ${pass}`;
@@ -915,6 +946,10 @@ function mongoLabel(doc: MongoDocument): string {
 
 function mongoDetail(doc: MongoDocument): string {
   const d = doc.doc;
+  if (doc.collection === 'scenario_records') {
+    const fields = Object.keys(d).filter((k) => !['type', 'title', 'scenario', 'status'].includes(k));
+    return fields.length > 0 ? fields.join(', ') : doc.collection;
+  }
   if (doc.collection === 'attendee_profiles') {
     const parts = [d.email, d.company].filter((x) => typeof x === 'string');
     return parts.join(' · ') || doc.collection;
@@ -946,7 +981,9 @@ export function deletableRecordKeys(engine: DbEngine): string[] {
       : engine === 'postgres'
         ? POSTGRES_ROWS
         : MONGO_DOCUMENTS;
-  return rows.filter((r) => r.recordKey).map((r) => r.recordKey!);
+  return rows
+    .map((r) => deletionHandleForRow(engine, r))
+    .filter((h): h is string => Boolean(h));
 }
 
 export function allDeletableTargets(): { engine: DbEngine; key: string }[] {
@@ -979,30 +1016,127 @@ export type DbSnapshot = {
 
 export function homeDataItemsFromSnapshot(engine: DbEngine, snapshot: DbSnapshot): HomeDataItem[] {
   if (engine === 'mysql') {
-    return snapshot.mysql.map((row) => ({
-      id: row.recordKey ?? `mysql-${row.id}`,
-      recordKey: row.recordKey,
-      category: row.category,
-      label: `${row.full_name} · ${row.pass_type}`,
-      detail: row.payload_summary,
-    }));
+    return snapshot.mysql.flatMap((row) => {
+      const handle = deletionHandleForRow('mysql', row);
+      if (!handle) return [];
+      return [{
+        id: handle,
+        recordKey: handle,
+        category: row.category,
+        label: `${row.full_name} · ${row.pass_type}`,
+        detail: row.payload_summary,
+      }];
+    });
   }
   if (engine === 'postgres') {
-    return snapshot.postgres.map((row) => ({
-      id: row.recordKey ?? row.id,
-      recordKey: row.recordKey,
-      category: row.source.replace(/_/g, ' '),
-      label: `${row.contact_name} · ${row.interaction_type.replace(/_/g, ' ')}`,
-      detail: row.metadata,
-    }));
+    return snapshot.postgres.flatMap((row) => {
+      const handle = deletionHandleForRow('postgres', row);
+      if (!handle) return [];
+      return [{
+        id: handle,
+        recordKey: handle,
+        category: row.source.replace(/_/g, ' '),
+        label: `${row.contact_name} · ${row.interaction_type.replace(/_/g, ' ')}`,
+        detail: row.metadata,
+      }];
+    });
   }
-  return snapshot.mongo.map((doc) => ({
-    id: doc.recordKey ?? doc._id,
-    recordKey: doc.recordKey,
-    category: mongoCategory(doc.collection),
-    label: mongoLabel(doc),
-    detail: mongoDetail(doc),
-  }));
+  return snapshot.mongo.flatMap((doc) => {
+    const handle = deletionHandleForRow('mongo', doc);
+    if (!handle) return [];
+    return [{
+      id: handle,
+      recordKey: handle,
+      category: mongoCategory(doc.collection),
+      label: mongoLabel(doc),
+      detail: mongoDetail(doc),
+    }];
+  });
+}
+
+/** Live DB rows plus tombstoned rows kept in UI erasure state (gone from DB, proof still visible). */
+export function platformRecordUi(
+  engine: DbEngine,
+  recordKey: string | undefined,
+  liveSnapshot: DbSnapshot,
+  records: RecordsMap
+): 'active' | 'deleted' | 'checking' {
+  if (!recordKey) return 'active';
+  const st = records[recordKey];
+  if (st?.ui === 'checking') return 'checking';
+  if (st?.ui === 'deleted' || st?.receipt) return 'deleted';
+  const inLive = deletableRecordKeysFromSnapshot(engine, liveSnapshot).includes(recordKey);
+  return inLive ? 'active' : 'deleted';
+}
+
+export function platformListStats(
+  engine: DbEngine,
+  catalog: DbSnapshot,
+  liveSnapshot: DbSnapshot,
+  records: RecordsMap
+): { total: number; live: number; destroyed: number } {
+  const items = homeDataItemsWithErasure(engine, catalog, liveSnapshot, records);
+  let destroyed = 0;
+  for (const item of items) {
+    if (platformRecordUi(engine, item.recordKey, liveSnapshot, records) === 'deleted') {
+      destroyed += 1;
+    }
+  }
+  return {
+    total: items.length,
+    live: deletableRecordKeysFromSnapshot(engine, liveSnapshot).length,
+    destroyed,
+  };
+}
+
+/** Full platform list: scenario catalog + custom live rows + tombstoned rows after DB delete. */
+export function homeDataItemsWithErasure(
+  engine: DbEngine,
+  catalog: DbSnapshot,
+  liveSnapshot: DbSnapshot,
+  records: RecordsMap
+): HomeDataItem[] {
+  const catalogItems = homeDataItemsFromSnapshot(engine, catalog);
+  const knownKeys = new Set(catalogItems.map((i) => i.recordKey).filter(Boolean));
+  const merged = [...catalogItems];
+
+  for (const item of homeDataItemsFromSnapshot(engine, liveSnapshot)) {
+    const key = item.recordKey;
+    if (!key || knownKeys.has(key)) continue;
+    knownKeys.add(key);
+    merged.push(item);
+  }
+
+  for (const [recordKey, state] of Object.entries(records)) {
+    if (!recordKey || knownKeys.has(recordKey)) continue;
+    if (state?.ui !== 'deleted' && state?.ui !== 'checking' && !state?.receipt) continue;
+
+    knownKeys.add(recordKey);
+    const display = state.display;
+    merged.push({
+      id: recordKey,
+      recordKey,
+      category: display?.category ?? 'Removed',
+      label: display?.label ?? recordKey.split('/').slice(-1)[0]?.replace(/-/g, ' ') ?? recordKey,
+      detail:
+        display?.detail ??
+        (state.ui === 'deleted' ? 'Removed from database · CVDR on file' : 'Processing…'),
+    });
+  }
+
+  return merged;
+}
+
+/** Keys selectable in the platform list: full catalog + custom live rows + erasure-tracked tombstones. */
+export function catalogRecordKeys(
+  engine: DbEngine,
+  catalog: DbSnapshot,
+  liveSnapshot: DbSnapshot,
+  records: RecordsMap
+): string[] {
+  return homeDataItemsWithErasure(engine, catalog, liveSnapshot, records)
+    .map((item) => item.recordKey ?? item.id)
+    .filter(Boolean);
 }
 
 export function deletableRecordKeysFromSnapshot(engine: DbEngine, snapshot: DbSnapshot): string[] {
@@ -1012,5 +1146,7 @@ export function deletableRecordKeysFromSnapshot(engine: DbEngine, snapshot: DbSn
       : engine === 'postgres'
         ? snapshot.postgres
         : snapshot.mongo;
-  return rows.filter((r) => r.recordKey).map((r) => r.recordKey!);
+  return rows
+    .map((r) => deletionHandleForRow(engine, r))
+    .filter((h): h is string => Boolean(h));
 }

@@ -21,10 +21,16 @@ import type {
   ReceiptLookup,
 } from './issuanceTypes.js';
 import { mktd03IdlFactory } from './mktd03Idl.js';
+import {
+  mergeCommercialPreflight,
+  queryAllowanceStatus,
+  querySecurityStatus,
+} from './commercial.js';
 import { assertCommercialPreflight } from './preflightCommercial.js';
 
 export type Mktd03IssuanceActor = {
   get_tree_mode_status: () => Promise<{
+    interface_version: { major: number; minor: number; patch: number };
     build_identity: { build_label?: [string] };
     lifecycle_state: Record<string, unknown>;
   }>;
@@ -180,6 +186,64 @@ export async function queryMktd03Status(
   const label = status.build_identity.build_label?.[0];
   const lifecycle = variantKey(status.lifecycle_state as Record<string, unknown>);
   return [label, lifecycle].filter(Boolean).join(' · ');
+}
+
+/** MKTd03 Candid interface version from get_tree_mode_status (e.g. 3.4.0). */
+export async function queryMktd03InterfaceVersion(
+  canisterId: string,
+  icHost: string
+): Promise<string> {
+  const agent = await createIcAgent(icHost);
+  const actor = createMktd03Actor(agent, canisterId);
+  const status = await actor.get_tree_mode_status();
+  const v = status.interface_version as { major: number; minor: number; patch: number };
+  return `${v.major}.${v.minor}.${v.patch}`;
+}
+
+export type Mktd03AllowanceView = {
+  remaining: string;
+  reserved: string;
+  available: string;
+  commercialStatus: string;
+  canEmit: boolean;
+};
+
+/** Query commercial deletion allowance on MKTd03 (remaining credits for CVDR issuance). */
+export async function queryMktd03Allowance(
+  canisterId: string,
+  icHost: string
+): Promise<Mktd03AllowanceView> {
+  const agent = await createIcAgent(icHost);
+  const actor = createMktd03Actor(agent, canisterId);
+  const allowance = await queryAllowanceStatus(actor);
+  let merged = {
+    commercialStatus: allowance.commercialStatus,
+    remaining: allowance.remaining,
+    reserved: allowance.reserved,
+    canEmit: allowance.devBypass,
+    blockedReason: null as string | null,
+  };
+  try {
+    const security = await querySecurityStatus(actor);
+    const preflight = mergeCommercialPreflight(allowance, security);
+    merged = {
+      commercialStatus: preflight.commercialStatus,
+      remaining: preflight.remaining,
+      reserved: preflight.reserved,
+      canEmit: preflight.canEmit,
+      blockedReason: preflight.blockedReason,
+    };
+  } catch {
+    // get_security_status optional on older canisters
+  }
+  const available = merged.remaining - merged.reserved;
+  return {
+    remaining: merged.remaining.toString(),
+    reserved: merged.reserved.toString(),
+    available: available.toString(),
+    commercialStatus: merged.commercialStatus,
+    canEmit: merged.canEmit,
+  };
 }
 
 async function issueDeletionReceiptOnCanister(

@@ -1,54 +1,82 @@
 # @together-alone/zombiedelete-server
 
-SDK **Node.js / API OffSign** — quatre entrées publiques pour l’intégrateur :
+SDK **Node.js / API OffSign** — entrées publiques pour l'intégrateur :
 
 | Fonction | Rôle |
 |----------|------|
-| **`offsign()`** | Après DELETE métier : re-lecture BDD (absence) puis signature de l’attestation backend. |
-| **`issueAttestedDeletionReceipt()`** | Vérifie l’offsign, puis émet le reçu **CVDR** on-chain (begin → metadata → certificate → finalize). Signé par la clé contrôleur MKTd03 côté API. |
-| **`attestDeletionProof()`** | À partir d’un reçu **CVDR** + payload offsign : vérif crypto, binding receipt, re-lecture BDD read-only. |
-| **`issueDeletionCertificate()`** | Même gate BDD que `attestDeletionProof`, puis génération du **PDF** via `render_audit_pdf` sur MKTd03. |
+| **`offsignDelete()`** | Flux unique : DELETE paramétré → vérif absence BDD (read-only) → signature backend → **CVDR MKTd03**. |
+| **`guardedInsert()`** | Garde CVDR (`get_receipt`) puis INSERT paramétré — refuse si sujet tombstoné. |
+| **`offsign()`** | Bas niveau : vérif absence + signature après votre propre DELETE. |
+| **`issueAttestedDeletionReceipt()`** | Émet le reçu **CVDR** on-chain (begin → metadata → certificate → finalize). |
+| **`attestDeletionProof()`** | Reçu CVDR + payload offsign : vérif crypto, binding receipt, re-lecture BDD read-only. |
+| **`issueDeletionCertificate()`** | Même gate BDD que `attestDeletionProof`, puis PDF via `render_audit_pdf` sur MKTd03. |
+
+Schéma d'architecture : [`documents/sdk/offsign-sdk-architecture.svg`](../../documents/sdk/offsign-sdk-architecture.svg)
 
 Helpers avancés (verifiers SQL, `checkDeclaredDeletionInDatabase`, …) : `@together-alone/zombiedelete-server/internal`.
 
-## Usage (DELETE + issuance sur l’API)
+## Usage (flux unique DELETE + CVDR)
 
 ```ts
 import { Ed25519KeyIdentity } from '@dfinity/identity';
-import { sha256 } from '@together-alone/zombiedelete-core';
-import { offsign, issueAttestedDeletionReceipt } from '@together-alone/zombiedelete-server';
+import {
+  deriveDeletionSubjectReference,
+  formatDeletionSourceLocator,
+} from '@together-alone/zombiedelete-core';
+import { offsignDelete } from '@together-alone/zombiedelete-server';
 
 const backendIdentity = Ed25519KeyIdentity.fromJSON(process.env.OFFSIGN_BACKEND_IDENTITY_JSON!);
 const controllerIdentity = Ed25519KeyIdentity.fromJSON(process.env.MKTD03_CONTROLLER_IDENTITY_JSON!);
 
-app.delete('/contacts/:id', async (req, res) => {
-  await db.deleteContact(req.params.id);
+app.delete('/contacts/:email', async (req, res) => {
+  const subjectReference = await deriveDeletionSubjectReference({
+    subjectPrefix: 'tenant-acme:',
+    databaseType: 'postgres',
+    tableOrCollection: 'contacts',
+    keyField: 'email',
+    keyValue: req.params.email,
+  });
 
-  const subjectReference = await sha256(`tenant-acme:contact:${req.params.id}`);
-  const offsignPayload = await offsign({
+  const { signedAttestation, receipt } = await offsignDelete({
     identity: backendIdentity,
     subjectReference,
     deletionEventId: crypto.randomUUID(),
     connection: pool,
     databaseType: 'postgres',
     tableOrCollection: 'contacts',
-    data: { keyField: 'id', keyValue: req.params.id },
+    data: { keyField: 'email', keyValue: req.params.email },
+    sourceLocator: formatDeletionSourceLocator({
+      databaseType: 'postgres',
+      tableOrCollection: 'contacts',
+      recordKey: req.params.email,
+    }),
+    mktd03: {
+      canisterId: process.env.MKTD03_CANISTER_ID!,
+      icHost: process.env.MKTD03_IC_HOST ?? 'http://127.0.0.1:4943',
+      controllerIdentity,
+      trustedBackendPublicKeyHex: Buffer.from(backendIdentity.getPublicKey().toRaw()).toString('hex'),
+      audit: { subjectLabel: req.params.email, legalContext: 'GDPR Art. 17' },
+    },
   });
 
-  const receipt = await issueAttestedDeletionReceipt({
-    canisterId: process.env.MKTD03_CANISTER_ID!,
-    icHost: process.env.MKTD03_IC_HOST ?? 'http://127.0.0.1:4943',
-    controllerIdentity,
-    signedAttestation: offsignPayload,
-    trustedBackendPublicKeyHex: Buffer.from(backendIdentity.getPublicKey().toRaw()).toString('hex'),
-    audit: { subjectLabel: `Contact ${req.params.id}`, legalContext: 'GDPR Art. 17' },
-  });
-
-  res.json({ ok: true, offsign: offsignPayload, receipt });
+  res.json({ ok: true, offsign: signedAttestation, receipt });
 });
 ```
 
-La même identité peut servir pour `offsign` et `controllerIdentity` si ce principal est contrôleur du canister MKTd03.
+## INSERT protégé (garde CVDR)
+
+```ts
+import { guardedInsert } from '@together-alone/zombiedelete-server';
+
+await guardedInsert({
+  connection: pool,
+  databaseType: 'postgres',
+  tableOrCollection: 'contacts',
+  subjectReference,
+  columns: { email: req.body.email, name: req.body.name },
+  client: mktd03Client,
+});
+```
 
 ## Attester une preuve CVDR (C7)
 
@@ -62,27 +90,8 @@ const attestation = await attestDeletionProof({
   connection: pool,
   databaseType: 'postgres',
   tableOrCollection: 'contacts',
-  data: { keyField: 'id', keyValue: contactId },
+  data: { keyField: 'email', keyValue: contactEmail },
 });
 ```
 
-## Certificat PDF (après gate BDD)
-
-```ts
-import { issueDeletionCertificate } from '@together-alone/zombiedelete-server';
-
-const { pdf, attestation } = await issueDeletionCertificate({
-  signedAttestation: offsignPayload,
-  receipt: cvdrReceipt,
-  trustedBackendPublicKeyHex: BACKEND_PUBKEY_HEX,
-  connection: pool,
-  databaseType: 'postgres',
-  tableOrCollection: 'contacts',
-  data: { keyField: 'id', keyValue: contactId },
-  canisterId: process.env.MKTD03_CANISTER_ID!,
-  icHost: process.env.MKTD03_IC_HOST ?? 'http://127.0.0.1:4943',
-  auditorHmacKeyHex: process.env.MKTD03_AUDITOR_HMAC_KEY_HEX!,
-});
-```
-
-Sans `connection` + `databaseType` + `tableOrCollection` + `data`, **`offsign` refuse de signer** et les deux autres fonctions échouent sur la re-lecture BDD.
+Sans `connection` + `databaseType` + `tableOrCollection` + `data`, **`offsign` refuse de signer** et les fonctions d'audit échouent sur la re-lecture BDD.

@@ -1,6 +1,7 @@
 import {
-  deletableRecordKeysFromSnapshot,
-  homeDataItems,
+  homeDataItemsWithErasure,
+  platformListStats,
+  platformRecordUi,
   type DbSnapshot,
 } from '../data/demoDatabases';
 import { DB_ENGINES, type DbEngine } from '../lib/dbEngine';
@@ -10,33 +11,46 @@ import type { RecordErasureState } from '../data/demoDatabases';
 type Props = {
   engine: DbEngine;
   onEngineChange: (engine: DbEngine) => void;
-  snapshot: DbSnapshot;
+  /** Scenario seed catalog — always shown in the list. */
+  catalog: DbSnapshot;
+  /** Live DB snapshot — drives Active vs Destroyed badges. */
+  liveSnapshot: DbSnapshot;
   records: Record<string, RecordErasureState | undefined>;
   selectedId: string;
   onSelect: (id: string) => void;
   onVisualize: () => void;
+  onAddRecord?: () => void;
 };
 
 export function PlatformDataList({
   engine,
   onEngineChange,
-  snapshot,
+  catalog,
+  liveSnapshot,
   records,
   selectedId,
   onSelect,
   onVisualize,
+  onAddRecord,
 }: Props) {
-  const items = homeDataItems(engine);
-  const liveInDb = deletableRecordKeysFromSnapshot(engine, snapshot).length;
+  const items = homeDataItemsWithErasure(engine, catalog, liveSnapshot, records);
+  const stats = platformListStats(engine, catalog, liveSnapshot, records);
   const engineMeta = DB_ENGINES.find((e) => e.id === engine)!;
 
   return (
     <>
       <div className="demo-panel-header">
         <h2 className="demo-section-title">Platform data</h2>
-        <button type="button" className="demo-btn-ghost px-3 py-1.5 text-xs" onClick={onVisualize}>
-          Visualize database
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {onAddRecord ? (
+            <button type="button" className="demo-btn-ghost px-3 py-1.5 text-xs" onClick={onAddRecord}>
+              Insert row
+            </button>
+          ) : null}
+          <button type="button" className="demo-btn-ghost px-3 py-1.5 text-xs" onClick={onVisualize}>
+            Visualize database
+          </button>
+        </div>
       </div>
 
       <div>
@@ -57,21 +71,20 @@ export function PlatformDataList({
           ))}
         </div>
         <p className="demo-meta">
-          {engineMeta.label} · {items.length} demo record{items.length === 1 ? '' : 's'} · {liveInDb}{' '}
+          {engineMeta.label} · {stats.total} demo record{stats.total === 1 ? '' : 's'} · {stats.live}{' '}
           live in DB
+          {stats.destroyed > 0 ? ` · ${stats.destroyed} destroyed` : ''}
         </p>
       </div>
 
       <ul className="mt-4 max-h-[32rem] space-y-2 overflow-y-auto pr-0.5">
         {items.map((item) => {
-          const st = item.recordKey ? records[item.recordKey] : undefined;
-          const ui = st?.ui ?? 'active';
-          const isSelected = item.recordKey
-            ? item.recordKey === selectedId
-            : item.id === selectedId;
+          const recordKey = item.recordKey ?? item.id;
+          const ui = platformRecordUi(engine, recordKey, liveSnapshot, records);
+          const isSelected = recordKey === selectedId;
           const badge =
             ui === 'deleted'
-              ? 'Erased'
+              ? 'Destroyed'
               : ui === 'checking'
                 ? 'Processing…'
                 : 'Active';
@@ -85,8 +98,8 @@ export function PlatformDataList({
             <li key={item.id}>
               <button
                 type="button"
-                onClick={() => item.recordKey && onSelect(item.recordKey)}
-                className={`demo-record ${isSelected ? 'demo-record--selected' : ''}`}
+                onClick={() => onSelect(recordKey)}
+                className={`demo-record ${isSelected ? 'demo-record--selected' : ''} ${ui === 'deleted' ? 'demo-record--destroyed' : ''}`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">

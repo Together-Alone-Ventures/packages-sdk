@@ -47,7 +47,7 @@ async function parseJson<T>(res: Response): Promise<T> {
 }
 
 export function getIcHost(): string {
-  return (import.meta.env.VITE_IC_HOST as string | undefined)?.trim() || 'http://127.0.0.1:4943';
+  return (import.meta.env.VITE_IC_HOST as string | undefined)?.trim() || 'https://icp-api.io';
 }
 
 export function signingModeLabel(): string {
@@ -72,7 +72,7 @@ export async function connectDemoCanister(canisterId?: string): Promise<{
   const config = await apiConfig();
   const id = canisterId?.trim() || config.mktd03CanisterId?.trim() || '';
   if (!id) {
-    throw new Error('MKTD03_CANISTER_ID manquant. Définis-le dans packages-sdk/demo/api/.env');
+    throw new Error('MKTD03_CANISTER_ID missing. Set it in packages-sdk/demo/api/.env');
   }
   const qs = id ? `?canisterId=${encodeURIComponent(id)}` : '';
   const res = await fetch(`${API_BASE}/api/mktd03/status${qs}`);
@@ -111,11 +111,11 @@ export async function issueDemoAttestedDeletionReceipt(
     legalContext?: string;
   }
 ): Promise<{ offsign: SignedBackendDeletionAttestationV1; receipt: Receipt }> {
-  onProgress?.({ step: 'begin', message: 'DELETE + offsign + issuance via demo API…' });
+  onProgress?.({ step: 'begin', message: 'OffSign: DELETE + verify + sign + MKTd03…' });
   const res = await fetch(
-    `${API_BASE}/api/${engine}/records/${encodeURIComponent(recordKey)}/prove-deletion`,
+    `${API_BASE}/api/${engine}/records/${encodeURIComponent(recordKey)}`,
     {
-      method: 'POST',
+      method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ audit }),
     }
@@ -128,11 +128,11 @@ export async function issueDemoAttestedDeletionReceipt(
     error?: string;
   };
   if (!res.ok || !body.ok || !body.offsign || !body.receipt) {
-    const err = body.message ?? body.error ?? 'prove_deletion_failed';
-    if (err === 'not_mktd03_canister' || String(body.message ?? '').includes('ne répond pas comme un MKTd03')) {
+    const err = body.message ?? body.error ?? 'offsign_delete_failed';
+    if (err === 'not_mktd03_canister' || String(body.message ?? '').includes('does not respond as a full MKTd03')) {
       throw new Error(
         body.message ??
-          'Canister invalide : utilisez l’ID MKTd03 déployé via le portail (pas un autre canister dfx local).'
+          'Invalid canister: use the MKTd03 ID deployed via the portal (not a local dfx canister).'
       );
     }
     throw new Error(body.message ?? err);

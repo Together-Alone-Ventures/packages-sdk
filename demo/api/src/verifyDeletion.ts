@@ -4,9 +4,11 @@ import {
   createWiredDeletionVerifier,
   type DatabaseVerifier,
 } from '@together-alone/zombiedelete-server/internal';
+import type { DeletionTarget } from '../../shared/deletionSubject.js';
 import { demoStorageMode, MONGO_COLLECTION, MYSQL_TABLE, POSTGRES_TABLE } from './config.js';
 import { getMongoCollection, getMysqlPool, getPostgresPool } from './db/pools.js';
-import { recordAbsent } from './store.js';
+import { recordAbsentForTarget } from './store.js';
+import { wiredDataForDeletionTarget } from './deletionResolve.js';
 
 export type WiredDeletionTarget = {
   connection: unknown;
@@ -15,45 +17,49 @@ export type WiredDeletionTarget = {
   data: WiredDeletionData;
 };
 
-export function wiredDeletionTarget(engine: DbEngine, recordKey: string): WiredDeletionTarget {
+export function wiredDeletionTargetFromDeletionTarget(
+  target: DeletionTarget
+): WiredDeletionTarget {
   if (demoStorageMode() === 'real') {
-    return realWiredTarget(engine, recordKey);
+    return realWiredTarget(target);
   }
-  return jsonWiredTarget(engine, recordKey);
+  return jsonWiredTarget(target);
 }
 
-function jsonWiredTarget(engine: DbEngine, recordKey: string): WiredDeletionTarget {
-  const readAbsent = () => recordAbsent(engine, recordKey);
+function jsonWiredTarget(target: DeletionTarget): WiredDeletionTarget {
+  const data = wiredDataForDeletionTarget(target);
+  const readAbsent = () => recordAbsentForTarget(target.engine, target);
   const connection = {
     kind: 'demo-json-store' as const,
-    engine,
+    engine: target.engine,
     query: async () => ({ rows: (await readAbsent()) ? [] : [{ found: 1 }] }),
     execute: async () => [(await readAbsent()) ? [] : [{ found: 1 }], []],
-    findOne: async () => ((await readAbsent()) ? null : { _id: recordKey }),
+    findOne: async () => ((await readAbsent()) ? null : { _id: target.handle }),
   };
   return {
     connection,
-    databaseType: engine,
-    tableOrCollection: tableForEngine(engine),
-    data: { keyField: 'record_key', keyValue: recordKey },
+    databaseType: target.engine,
+    tableOrCollection: tableForEngine(target.engine),
+    data,
   };
 }
 
-function realWiredTarget(engine: DbEngine, recordKey: string): WiredDeletionTarget {
-  if (engine === 'mysql') {
+function realWiredTarget(target: DeletionTarget): WiredDeletionTarget {
+  const data = wiredDataForDeletionTarget(target);
+  if (target.engine === 'mysql') {
     return {
       connection: getMysqlPool(),
       databaseType: 'mysql',
       tableOrCollection: MYSQL_TABLE,
-      data: { keyField: 'record_key', keyValue: recordKey },
+      data,
     };
   }
-  if (engine === 'postgres') {
+  if (target.engine === 'postgres') {
     return {
       connection: getPostgresPool(),
       databaseType: 'postgres',
       tableOrCollection: POSTGRES_TABLE,
-      data: { keyField: 'record_key', keyValue: recordKey },
+      data,
     };
   }
   return {
@@ -65,7 +71,7 @@ function realWiredTarget(engine: DbEngine, recordKey: string): WiredDeletionTarg
     },
     databaseType: 'mongo',
     tableOrCollection: MONGO_COLLECTION,
-    data: { record_key: recordKey },
+    data,
   };
 }
 
@@ -75,27 +81,12 @@ function tableForEngine(engine: DbEngine): string {
   return MONGO_COLLECTION;
 }
 
-/** @deprecated Use wiredDeletionTarget */
-export function createDemoWiredConnection(engine: DbEngine, recordKey: string) {
-  const target = jsonWiredTarget(engine, recordKey);
-  return {
-    kind: 'demo-json-store' as const,
-    engine,
-    query: (target.connection as { query: () => Promise<{ rows: unknown[] }> }).query,
-    execute: (target.connection as { execute: () => Promise<[unknown[], unknown]> }).execute,
-    findOne: (target.connection as { findOne: () => Promise<unknown | null> }).findOne,
-  };
-}
-
-export function createDemoDatabaseVerifier(
-  engine: DbEngine,
-  recordKey: string
-): DatabaseVerifier {
-  const target = wiredDeletionTarget(engine, recordKey);
+export function createDemoDatabaseVerifier(target: DeletionTarget): DatabaseVerifier {
+  const wired = wiredDeletionTargetFromDeletionTarget(target);
   return createWiredDeletionVerifier({
-    connection: target.connection,
-    databaseType: target.databaseType,
-    tableOrCollection: target.tableOrCollection,
-    data: target.data,
+    connection: wired.connection,
+    databaseType: wired.databaseType,
+    tableOrCollection: wired.tableOrCollection,
+    data: wired.data,
   });
 }

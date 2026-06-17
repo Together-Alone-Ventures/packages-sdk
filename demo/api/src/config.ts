@@ -10,6 +10,28 @@ export function demoSkipMktd03Preflight(): boolean {
   return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
+/** Local demo estimate when get_allowance_status is absent (dev only — not on-chain). */
+export function demoAllowanceEstimate(): boolean {
+  const raw = process.env.DEMO_ALLOWANCE_ESTIMATE?.trim().toLowerCase();
+  if (raw === '1' || raw === 'true' || raw === 'yes') return true;
+  if (raw === '0' || raw === 'false' || raw === 'no') return false;
+  return false;
+}
+
+/** Pool size for DEMO_ALLOWANCE_ESTIMATE=1 (default 1000). */
+export function demoInitialAllowance(): number | null {
+  if (!demoAllowanceEstimate()) return null;
+  const raw = process.env.DEMO_INITIAL_ALLOWANCE?.trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  return 1000;
+}
+
+/** MKTd03 interface with get_allowance_status / get_security_status (commercial layer). */
+export const MKTD03_COMMERCIAL_INTERFACE = '3.4.0';
+
 /** Canister MKTd03 cible — défini sur l’API, pas dans le navigateur. */
 export function resolveMktd03CanisterId(override?: string | null): string | null {
   const fromRequest = override?.trim();

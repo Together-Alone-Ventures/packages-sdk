@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@dfinity/identity": "^3.4.3",
+    "@together-alone/zombiedelete-core": "file:../../zombiedelete-core",
     "@together-alone/zombiedelete-server": "file:../../zombiedelete-server",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",

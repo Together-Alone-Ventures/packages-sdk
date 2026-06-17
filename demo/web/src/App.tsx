@@ -16,31 +16,46 @@ import {
   checkDeclaredDeletionViaApi,
   fetchAllEngineSnapshots,
   fetchDemoApiConfig,
+  fetchMktd03Allowance,
+  isAllowanceUnavailable,
   resetDemoDatabases,
+  switchDemoScenario,
+  addRecordViaApi,
   downloadDeletionCertificatePdf,
   restoreRecordViaApi,
+  type DemoScenarioMeta,
+  type DemoApiConfig,
+  type Mktd03AllowanceSnapshot,
+  type Mktd03AllowanceUnavailable,
 } from './lib/demoApi';
-import { loadErasureState, saveErasureState } from './lib/erasurePersistence';
-import type { Receipt, RecordUiState } from './lib/types';
+import { loadErasureState, saveErasureState, countCvdrReceipts } from './lib/erasurePersistence';
+import type { Receipt, RecordDisplay, RecordUiState } from './lib/types';
 import { BRAND } from './config/brand';
 import { CompanyLogo } from './components/CompanyLogo';
 import {
   allDeletableTargetsFromSnapshot,
-  deletableRecordKeys,
+  catalogRecordKeys,
   deletableRecordKeysFromSnapshot,
-  homeDataItems,
+  homeDataItemsFromSnapshot,
+  homeDataItemsWithErasure,
+  platformRecordUi,
   type DbSnapshot,
 } from './data/demoDatabases';
 import type { SignedBackendDeletionAttestationV1 } from '@together-alone/zombiedelete-core';
 import { PlatformDataList } from './components/PlatformDataList';
+import { AddRecordModal, type AddRecordFormValues } from './components/AddRecordModal';
 import { DatabaseViewerModal } from './components/DatabaseViewerModal';
 import type { DbEngine } from './lib/dbEngine';
+import type { ScenarioId } from '@demo-shared/demoScenarios';
+import { DEFAULT_SCENARIO_ID } from '@demo-shared/demoScenarios';
+import { getScenarioSeed } from '@demo-shared/scenarioSeed';
 
 type RecordState = {
   ui: RecordUiState;
   receipt?: Receipt;
   offsign?: SignedBackendDeletionAttestationV1;
   lastError?: string;
+  display?: RecordDisplay;
 };
 
 type ErasureByEngine = Record<DbEngine, Record<string, RecordState | undefined>>;
@@ -76,7 +91,25 @@ export default function App() {
   const [reissueMessage, setReissueMessage] = useState<string | null>(null);
   const [dbModalOpen, setDbModalOpen] = useState(false);
   const [dataEngine, setDataEngine] = useState<DbEngine>('mysql');
+  const [scenarios, setScenarios] = useState<DemoScenarioMeta[]>([]);
+  const [scenarioId, setScenarioId] = useState<ScenarioId>(DEFAULT_SCENARIO_ID);
+  const [scenarioBusy, setScenarioBusy] = useState(false);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [apiConfig, setApiConfig] = useState<DemoApiConfig | null>(null);
+  const [allowance, setAllowance] = useState<Mktd03AllowanceSnapshot | null>(null);
+  const [allowanceUnavailable, setAllowanceUnavailable] = useState<Mktd03AllowanceUnavailable | null>(
+    null
+  );
   const bootstrapStarted = useRef(false);
+
+  const activeScenario = useMemo(
+    () => scenarios.find((s) => s.id === scenarioId) ?? scenarios[0],
+    [scenarios, scenarioId]
+  );
+
+  const catalogSnapshot = useMemo(() => getScenarioSeed(scenarioId), [scenarioId]);
 
   const engineRecords = erasureByEngine[dataEngine];
   const selectedId = selectedByEngine[dataEngine];
@@ -117,16 +150,18 @@ export default function App() {
   };
 
   const selectedState = selectedId ? engineRecords[selectedId] : undefined;
-  const selectedUi = selectedState?.ui ?? 'active';
-  const catalogKeys = deletableRecordKeys(dataEngine);
+  const selectedUi = platformRecordUi(dataEngine, selectedId, dbSnapshot, engineRecords);
+  const catalogKeys = catalogRecordKeys(dataEngine, catalogSnapshot, dbSnapshot, engineRecords);
   const backendKeys = deletableRecordKeysFromSnapshot(dataEngine, dbSnapshot);
-  const canEraseSelected = catalogKeys.includes(selectedId);
+  const canEraseSelected = Boolean(selectedId && catalogKeys.includes(selectedId));
   const rowInBackend = backendKeys.includes(selectedId);
   const canIssueProof = canEraseSelected && rowInBackend && selectedUi !== 'deleted';
   const selectedLabel = useMemo(() => {
-    const item = homeDataItems(dataEngine).find((i) => i.recordKey === selectedId);
+    const item = homeDataItemsWithErasure(dataEngine, catalogSnapshot, dbSnapshot, engineRecords).find(
+      (i) => (i.recordKey ?? i.id) === selectedId
+    );
     return item?.label ?? selectedId;
-  }, [dataEngine, selectedId]);
+  }, [dataEngine, selectedId, catalogSnapshot, dbSnapshot, engineRecords]);
 
   const refreshDbSnapshot = useCallback(async () => {
     const snapshot = await fetchAllEngineSnapshots();
@@ -157,21 +192,68 @@ export default function App() {
     });
   }, [apiReady, dbSnapshot, applyErasureState]);
 
-  // Initial selection only — never jump away from a row the user just erased (with proof).
+  // Initial selection — prefer first active row in live DB.
   useEffect(() => {
     if (!apiReady || selectedId) return;
-    const pick = deletableRecordKeys(dataEngine).find(
-      (key) => engineRecords[key]?.ui !== 'deleted' && backendKeys.includes(key)
+    const pick = catalogRecordKeys(dataEngine, catalogSnapshot, dbSnapshot, engineRecords).find(
+      (key) => platformRecordUi(dataEngine, key, dbSnapshot, engineRecords) === 'active'
     );
     if (pick) {
       setSelectedByEngine((prev) => ({ ...prev, [dataEngine]: pick }));
     }
-  }, [apiReady, dataEngine, dbSnapshot, engineRecords, selectedId, backendKeys]);
+  }, [apiReady, dataEngine, catalogSnapshot, dbSnapshot, engineRecords, selectedId]);
+
+  const captureDisplay = (engine: DbEngine, recordKey: string): RecordDisplay | undefined => {
+    const item = homeDataItemsFromSnapshot(engine, catalogSnapshot).find(
+      (i) => i.recordKey === recordKey
+    );
+    if (item) {
+      return { category: item.category, label: item.label, detail: item.detail };
+    }
+    return engineRecords[recordKey]?.display;
+  };
+
+  const refreshAllowance = useCallback(async (idOverride?: string) => {
+    const id = idOverride?.trim() || canisterId.trim() || apiConfig?.mktd03CanisterId?.trim() || '';
+    if (!id) {
+      setAllowance(null);
+      setAllowanceUnavailable(null);
+      return;
+    }
+    const result = await fetchMktd03Allowance(id);
+    if (!result) {
+      setAllowance(null);
+      setAllowanceUnavailable(null);
+      return;
+    }
+    if (isAllowanceUnavailable(result)) {
+      setAllowance(null);
+      setAllowanceUnavailable(result);
+      return;
+    }
+    setAllowanceUnavailable(null);
+    if (result.source === 'demo_estimate') {
+      const localUsed = countCvdrReceipts(loadErasureState(id) ?? EMPTY_ERASURE);
+      const used = Math.max(result.used ?? 0, localUsed);
+      const reserved = result.reserved ?? 0;
+      setAllowance({
+        ...result,
+        used,
+        available: Math.max(0, result.remaining - reserved - used),
+      });
+      return;
+    }
+    setAllowance(result);
+  }, [canisterId, apiConfig?.mktd03CanisterId]);
 
   const syncRecord = async (engine: DbEngine, recordId: string) => {
     const lookup = await syncDemoReceipt(recordId);
     if (lookup.kind === 'ok' && lookup.receipt) {
-      patchEngineRecord(engine, recordId, { ui: 'deleted', receipt: lookup.receipt });
+      patchEngineRecord(engine, recordId, {
+        ui: 'deleted',
+        receipt: lookup.receipt,
+        display: engineRecords[recordId]?.display ?? captureDisplay(engine, recordId),
+      });
     } else if (lookup.kind === 'not_yet_issued') {
       patchEngineRecord(engine, recordId, {
         ui: 'checking',
@@ -197,7 +279,7 @@ export default function App() {
       await syncRecord(engine, key);
     };
     for (const engine of ['mysql', 'postgres', 'mongo'] as const) {
-      for (const key of deletableRecordKeys(engine)) {
+      for (const key of deletableRecordKeysFromSnapshot(engine, snapshot)) {
         await syncKey(engine, key);
       }
     }
@@ -209,20 +291,23 @@ export default function App() {
         await syncKey(engine, key);
       }
     }
-    pushLog('info', 'État d’effacement resynchronisé depuis le canister (données API).');
+    pushLog('info', 'Erasure state resynced from canister (API data).');
   };
 
   const connect = useCallback(async () => {
     const config = await fetchDemoApiConfig();
     const id = config.mktd03CanisterId?.trim() ?? canisterId.trim();
     if (!id) {
-      pushLog('err', 'MKTD03_CANISTER_ID manquant dans packages-sdk/demo/api/.env');
+      pushLog('err', 'MKTD03_CANISTER_ID missing in packages-sdk/demo/api/.env');
       return;
     }
     setConnecting(true);
     setCanisterStatus(null);
     try {
       setCanisterId(id);
+      if (config.scenarios?.length) setScenarios(config.scenarios);
+      if (config.scenarioId) setScenarioId(config.scenarioId);
+      setApiConfig(config);
       const persisted = (loadErasureState(id) as ErasureByEngine | null) ?? EMPTY_ERASURE;
       setErasureByEngine(persisted);
       const snapshot = await fetchAllEngineSnapshots();
@@ -233,24 +318,27 @@ export default function App() {
       setCanisterId(connection.canisterId);
       setConnected(true);
       setCanisterStatus(connection.status);
-      pushLog('ok', `MKTd03 prêt via API (${connection.canisterId}, ${connection.icHost})`);
+      await refreshAllowance(connection.canisterId);
+      pushLog('ok', `MKTd03 ready via API (${connection.canisterId})`);
       pushLog(
         'info',
         `${signingModeLabel()} : ${getActiveSignerPrincipalText(connection.controllerPrincipal)}`
       );
       pushLog(
         'info',
-        `BDD live : ${snapshot.mysql.length} MySQL · ${snapshot.postgres.length} Postgres · ${snapshot.mongo.length} Mongo`
+        `Live DB: ${snapshot.mysql.length} MySQL · ${snapshot.postgres.length} Postgres · ${snapshot.mongo.length} Mongo`
       );
       await syncAllReceipts(snapshot, persisted);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       pushLog('err', msg);
       setConnected(false);
+      setAllowance(null);
+      setAllowanceUnavailable(null);
     } finally {
       setConnecting(false);
     }
-  }, [canisterId, pushLog]);
+  }, [canisterId, pushLog, refreshAllowance]);
 
   useEffect(() => {
     if (bootstrapStarted.current) return;
@@ -273,6 +361,7 @@ export default function App() {
       await resetDemoDatabases();
       await refreshDbSnapshot();
       applyErasureState(() => EMPTY_ERASURE);
+      setSelectedByEngine(emptySelection());
       setReissueMessage(null);
       pushLog('ok', 'Demo databases reset: all seed rows restored in the backend.');
     } catch (e) {
@@ -281,12 +370,58 @@ export default function App() {
     }
   };
 
+  const submitAddRecord = async (values: AddRecordFormValues) => {
+    setAddBusy(true);
+    setAddError(null);
+    try {
+      const result = await addRecordViaApi(dataEngine, values);
+      await refreshDbSnapshot();
+      setSelectedByEngine((prev) => ({ ...prev, [dataEngine]: result.recordKey }));
+      setAddModalOpen(false);
+      pushLog(
+        'ok',
+        `Record inserted in ${dataEngine}/${result.tableOrCollection}: ${result.recordKey}${
+          result.assignedId != null ? ` (id ${result.assignedId})` : ''
+        }`
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setAddError(msg);
+      pushLog('err', msg);
+    } finally {
+      setAddBusy(false);
+    }
+  };
+
+  const changeScenario = async (nextId: ScenarioId) => {
+    if (nextId === scenarioId || scenarioBusy) return;
+    setScenarioBusy(true);
+    try {
+      clearBackendPublicKeyCache();
+      clearDemoApiConfigCache();
+      const applied = await switchDemoScenario(nextId);
+      setScenarioId(applied);
+      await refreshDbSnapshot();
+      applyErasureState(() => EMPTY_ERASURE);
+      setSelectedByEngine(emptySelection());
+      setReissueMessage(null);
+      const label = scenarios.find((s) => s.id === applied)?.label ?? applied;
+      pushLog('ok', `Scenario switched to "${label}". Seed rows loaded into all stores.`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      pushLog('err', msg);
+    } finally {
+      setScenarioBusy(false);
+    }
+  };
+
   const proveDeletion = async () => {
     if (!connected || !canIssueProof || !apiReady) return;
+    const savedDisplay = captureDisplay(dataEngine, selectedId);
     setBusy(true);
     setProgress(null);
     setReissueMessage(null);
-    patchEngineRecord(dataEngine, selectedId, { ui: 'checking' });
+    patchEngineRecord(dataEngine, selectedId, { ui: 'checking', display: savedDisplay });
     let deleteSucceeded = false;
     try {
       pushLog('info', `DELETE + offsign + issuance via demo API (${dataEngine})…`);
@@ -298,7 +433,7 @@ export default function App() {
           subjectLabel: selectedLabel.replace(/\u00b7/g, ' - '),
           dataCategory: dataEngine,
           sourceSystem: BRAND.sourceSystem,
-          legalContext: 'GDPR Art. 17 - demo (backend-attested declaration)',
+          legalContext: `${activeScenario?.eyebrow ?? 'DEMO'} - demo (backend-attested declaration)`,
         }
       );
       deleteSucceeded = true;
@@ -320,18 +455,24 @@ export default function App() {
         );
       }
 
-      patchEngineRecord(dataEngine, selectedId, { ui: 'deleted', receipt, offsign: attestation });
+      patchEngineRecord(dataEngine, selectedId, {
+        ui: 'deleted',
+        receipt,
+        offsign: attestation,
+        display: savedDisplay ?? engineRecords[selectedId]?.display,
+      });
       const sum = receiptSummary(receipt);
       pushLog(
         'ok',
         `Backend-attested receipt issued for ${selectedLabel} (${dataEngine}). Tombstone ${sum.postHex}`
       );
+      await refreshAllowance();
     } catch (e) {
       let msg = formatIssuanceAgentError(null, e, canisterId);
       if (msg.includes('Audit metadata rejected')) {
         msg += [
           '',
-          'Recharge la page (Cmd+Shift+R) pour prendre le correctif SDK, puis réessaie.',
+          'Reload the page (Cmd+Shift+R) to pick up the SDK fix, then try again.',
         ].join(' ');
       }
       patchEngineRecord(dataEngine, selectedId, { ui: 'active', lastError: msg });
@@ -397,12 +538,40 @@ export default function App() {
                 <CompanyLogo className="h-9 w-9" title={BRAND.name} />
               </div>
               <div className="min-w-0">
-                <p className="demo-kicker">{BRAND.demoContext}</p>
+                <p className="demo-kicker">{activeScenario?.eyebrow ?? BRAND.demoContext}</p>
                 <h1 className="mt-2 text-3xl font-bold tracking-tight text-white md:text-[2.5rem] md:leading-tight">
                   {BRAND.name}
                 </h1>
+                {activeScenario?.subtitle ? (
+                  <p className="mt-3 max-w-2xl text-sm font-medium leading-relaxed text-zinc-200">
+                    {activeScenario.subtitle}
+                  </p>
+                ) : null}
                 <p className="mt-3 max-w-2xl text-sm leading-relaxed text-zinc-400">{BRAND.description}</p>
                 <p className="mt-3 text-sm font-medium text-zinc-300">{BRAND.tagline}</p>
+                {scenarios.length > 0 ? (
+                  <div className="mt-4 max-w-md">
+                    <label
+                      htmlFor="demo-scenario"
+                      className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500"
+                    >
+                      Scenario
+                    </label>
+                    <select
+                      id="demo-scenario"
+                      className="demo-select"
+                      value={scenarioId}
+                      disabled={scenarioBusy || busy || !apiReady}
+                      onChange={(e) => void changeScenario(e.target.value as ScenarioId)}
+                    >
+                      {scenarios.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 lg:pt-1">
@@ -413,6 +582,39 @@ export default function App() {
               >
                 {connecting ? 'Connecting MKTd03…' : connected ? 'MKTd03 connected' : 'MKTd03 offline'}
               </span>
+              {connected && allowance != null ? (
+                <span
+                  className="demo-badge font-mono tabular-nums"
+                  title={
+                    allowance.source === 'on_chain'
+                      ? `Solde on-chain MKTd03 (get_allowance_status) · statut ${allowance.commercialStatus}${
+                          allowance.reserved > 0 ? ` · ${allowance.reserved} réservés` : ''
+                        }`
+                      : allowance.source === 'demo_estimate'
+                        ? `Estimation locale — pas on-chain. Pool ${allowance.remaining} − ${allowance.used ?? 0} utilisés.`
+                        : allowance.reserved > 0
+                          ? `${allowance.remaining} total · ${allowance.reserved} reserved`
+                          : `Commercial status: ${allowance.commercialStatus}`
+                  }
+                >
+                  {allowance.available} deletion{allowance.available === 1 ? '' : 's'} left
+                  {allowance.source === 'demo_estimate' ? ' (est.)' : ''}
+                </span>
+              ) : connected && allowanceUnavailable ? (
+                <span
+                  className="demo-badge text-amber-200/90"
+                  title={allowanceUnavailable.message}
+                >
+                  Allowances on-chain indisponibles
+                  {allowanceUnavailable.interfaceVersion
+                    ? ` (MKTd03 ${allowanceUnavailable.interfaceVersion})`
+                    : ''}
+                </span>
+              ) : connected ? (
+                <span className="demo-badge text-zinc-500" title="Impossible de lire get_allowance_status.">
+                  Allowance n/a
+                </span>
+              ) : null}
               {canisterStatus ? (
                 <span className="demo-badge hidden font-mono sm:inline-flex">{canisterId.slice(0, 12)}…</span>
               ) : null}
@@ -426,17 +628,22 @@ export default function App() {
           <PlatformDataList
             engine={dataEngine}
             onEngineChange={setDataEngine}
-            snapshot={dbSnapshot}
+            catalog={catalogSnapshot}
+            liveSnapshot={dbSnapshot}
             records={engineRecords}
             selectedId={selectedId}
             onSelect={setSelectedId}
             onVisualize={() => setDbModalOpen(true)}
+            onAddRecord={() => {
+              setAddError(null);
+              setAddModalOpen(true);
+            }}
           />
         </section>
 
         <section className="demo-panel lg:col-span-3">
           <div className="demo-panel-header">
-            <h2 className="demo-section-title">Erasure workflow</h2>
+            <h2 className="demo-section-title">Verifiable destruction workflow</h2>
           </div>
           {canEraseSelected ? (
             <>
@@ -448,7 +655,7 @@ export default function App() {
               <ol className="demo-steps">
                 <Step
                   n={1}
-                  title="Record exists"
+                  title="Record present"
                   done={selectedUi === 'deleted' || (selectedUi === 'active' && rowInBackend)}
                   active={selectedUi === 'active' && rowInBackend}
                 >
@@ -460,7 +667,7 @@ export default function App() {
                 </Step>
                 <Step
                   n={2}
-                  title="Delete via API + issue receipt"
+                  title="Destroy, attest, issue CVDR"
                   done={selectedUi === 'deleted'}
                   active={busy || selectedUi === 'checking'}
                 >
@@ -469,7 +676,7 @@ export default function App() {
                 </Step>
                 <Step
                   n={3}
-                  title="Prove it cannot come back"
+                  title="Tombstone: non-resurrection"
                   done={Boolean(reissueMessage) && selectedUi === 'deleted'}
                   active={selectedUi === 'deleted' && !reissueMessage}
                 >
@@ -484,7 +691,7 @@ export default function App() {
                   disabled={!connected || !canIssueProof || busy}
                   onClick={() => void proveDeletion()}
                 >
-                  {busy ? 'Issuing receipt…' : 'Erase & issue receipt'}
+                  {busy ? 'Issuing CVDR…' : 'Destroy & issue CVDR'}
                 </button>
                 <button
                   type="button"
@@ -492,17 +699,16 @@ export default function App() {
                   disabled={!connected || busy || selectedUi !== 'deleted'}
                   onClick={() => void attemptRestore()}
                 >
-                  Try to restore customer data
+                  Try to resurrect the record
                 </button>
               </div>
 
               {connecting ? (
-                <p className="mt-3 text-sm text-zinc-500">Connexion MKTd03 via l’API…</p>
+                <p className="mt-3 text-sm text-zinc-500">Connecting MKTd03 via API…</p>
               ) : null}
               {!connected && !connecting ? (
                 <p className="mt-3 text-sm text-warn">
-                  MKTd03 indisponible. Vérifiez MKTD03_CANISTER_ID dans demo/api/.env et relancez
-                  l’API.
+                  MKTd03 unavailable. Check MKTD03_CANISTER_ID in demo/api/.env and restart the API.
                 </p>
               ) : null}
               {connected && !rowInBackend && selectedUi === 'active' ? (
@@ -537,7 +743,7 @@ export default function App() {
           ) : (
             <p className="mt-3 text-sm text-zinc-500">
               Select a demo-linked row in your platform data (MySQL, PostgreSQL, or MongoDB) to run
-              the erasure workflow. Each store has its own on-chain subject.
+              the destruction workflow. Each store has its own on-chain subject.
             </p>
           )}
         </section>
@@ -563,7 +769,7 @@ export default function App() {
         <ul className="demo-log">
           {logs.length === 0 ? (
             <li className="demo-log-line--info">
-              {connecting ? 'Initialisation…' : 'En attente de l’API demo.'}
+              {connecting ? 'Initializing…' : 'Waiting for demo API.'}
             </li>
           ) : (
             logs.map((line) => (
@@ -593,6 +799,16 @@ export default function App() {
         engine={dataEngine}
         onEngineChange={setDataEngine}
         removedCount={Object.values(engineRecords).filter((s) => s?.ui === 'deleted').length}
+      />
+
+      <AddRecordModal
+        open={addModalOpen}
+        engine={dataEngine}
+        tableOrCollection={apiConfig?.tables?.[dataEngine]}
+        busy={addBusy}
+        error={addError}
+        onClose={() => setAddModalOpen(false)}
+        onSubmit={submitAddRecord}
       />
     </div>
   );
@@ -674,14 +890,14 @@ function ReceiptCard({
   return (
     <div className="demo-receipt">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="font-semibold text-success">Deletion receipt on file</p>
+        <p className="font-semibold text-success">CVDR issued</p>
         <button
           type="button"
           className="demo-btn-ghost px-3 py-1.5 text-xs"
           disabled={!connected || pdfBusy}
           onClick={() => void downloadPdf()}
         >
-          {pdfBusy ? 'Generating PDF…' : 'Download PDF certificate'}
+          {pdfBusy ? 'Generating PDF…' : 'Download Verified Destruction Certificate (PDF)'}
         </button>
       </div>
       <dl className="mt-3 grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-1.5 font-mono text-[11px]">
@@ -691,11 +907,11 @@ function ReceiptCard({
         <dd className="break-all text-zinc-200">{sum.preHex}</dd>
         <dt className="text-zinc-500">post-state</dt>
         <dd className="break-all text-zinc-200">{sum.postHex}</dd>
-        <dt className="text-zinc-500">proof</dt>
+        <dt className="text-zinc-500">non-membership proof</dt>
         <dd className="text-zinc-200">{sum.proofLen > 0 ? `${sum.proofLen} bytes` : 'n/a'}</dd>
       </dl>
       {!connected ? (
-        <p className="mt-2 text-zinc-500">MKTd03 requis pour le certificat PDF via votre API.</p>
+        <p className="mt-2 text-zinc-500">MKTd03 required for PDF certificate via your API.</p>
       ) : null}
       {pdfError ? <p className="mt-3 text-danger">{pdfError}</p> : null}
     </div>

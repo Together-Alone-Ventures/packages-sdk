@@ -63,3 +63,10 @@ export {
   OffsignDatabaseVerifierRequiredError,
   OffsignDeletionNotVerifiedError,
 } from './offsignTypes.js';
+export { formatDeletionSourceLocator, type DeletionSourceLocatorInput } from './sourceLocator.js';
+export {
+  buildDeletionHandle,
+  deriveDeletionSubjectReference,
+  deriveDeletionSubjectReferenceFromHandle,
+  type DeriveDeletionSubjectReferenceParams,
+} from './deletionSubject.js';

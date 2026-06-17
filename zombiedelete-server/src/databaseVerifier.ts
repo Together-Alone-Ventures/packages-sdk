@@ -161,7 +161,7 @@ export class OffsignInvalidDatabaseIdentifierError extends Error {
   }
 }
 
-function assertSqlIdentifier(name: string, label: string): string {
+export function assertSqlIdentifier(name: string, label: string): string {
   const trimmed = name.trim();
   if (!SQL_IDENTIFIER.test(trimmed)) {
     throw new OffsignInvalidDatabaseIdentifierError(
