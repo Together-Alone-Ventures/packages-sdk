@@ -13,6 +13,7 @@ import {
   queryMktd03InterfaceVersion,
   queryMktd03Receipt,
   queryMktd03Status,
+  recoverMktd03PendingIssuance,
 } from '@together-alone/zombiedelete-server';
 import { serializeReceiptForJson, formatDeletionSourceLocator } from '@together-alone/zombiedelete-core';
 import cors from 'cors';
@@ -37,6 +38,8 @@ import {
   getRegisteredTarget,
   registerDeletion,
 } from './deletionRegistry.js';
+import { mktd03PendingSummary, recoverStoredPendingIssuances } from './pendingRecovery.js';
+import { demoPendingIssuanceStore } from './pendingIssuanceStore.js';
 import { isMktd03InterfaceError, isAllowanceStatusMissing, mktd03CanisterHint } from './mktd03CanisterGuard.js';
 import { wiredDeletionTargetFromDeletionTarget } from './verifyDeletion.js';
 import {
@@ -453,6 +456,61 @@ app.get('/api/mktd03/allowance', async (req, res) => {
       return;
     }
     res.status(502).json({ ok: false, error: 'allowance_failed', message });
+  }
+});
+
+app.get('/api/mktd03/pending', async (req, res) => {
+  const canisterId = resolveMktd03CanisterId(String(req.query.canisterId ?? ''));
+  if (!canisterId) {
+    res.status(503).json({ ok: false, error: 'mktd03_canister_id_not_configured' });
+    return;
+  }
+  try {
+    const summary = await mktd03PendingSummary(canisterId, resolveMktd03IcHost());
+    res.json({ ok: true, canisterId, ...summary });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json({ ok: false, error: 'pending_status_failed', message });
+  }
+});
+
+app.post('/api/mktd03/recover-pending', async (req, res) => {
+  const canisterId = resolveMktd03CanisterId(String(req.body?.canisterId ?? ''));
+  if (!canisterId) {
+    res.status(503).json({ ok: false, error: 'mktd03_canister_id_not_configured' });
+    return;
+  }
+  const pendingIdHex = String(req.body?.pendingIdHex ?? '').trim();
+  const recordKey = String(req.body?.recordKey ?? req.body?.deletionHandle ?? '').trim();
+
+  try {
+    if (pendingIdHex && recordKey) {
+      const subjectReference = await subjectReferenceForRecord(recordKey);
+      const receipt = await recoverMktd03PendingIssuance({
+        canisterId,
+        icHost: resolveMktd03IcHost(),
+        controllerIdentity: signing.controllerIdentity,
+        subjectReference,
+        pendingIdHex,
+        pendingIssuanceStore: demoPendingIssuanceStore,
+      });
+      res.json({
+        ok: true,
+        recordKey,
+        receipt: serializeReceiptForJson(receipt),
+      });
+      return;
+    }
+
+    const results = await recoverStoredPendingIssuances({
+      canisterId,
+      icHost: resolveMktd03IcHost(),
+      controllerIdentity: signing.controllerIdentity,
+    });
+    res.json({ ok: true, canisterId, results });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json({ ok: false, error: 'recover_pending_failed', message });
   }
 });
 

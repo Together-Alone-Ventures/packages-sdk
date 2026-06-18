@@ -20,6 +20,7 @@ export {
 } from './guardedInsert.js';
 export {
   issueAttestedDeletionReceipt,
+  recoverMktd03PendingIssuance,
   queryMktd03Allowance,
   queryMktd03InterfaceVersion,
   queryMktd03Receipt,
@@ -65,3 +66,5 @@ export type {
   IssuanceProgress,
   ReceiptLookup,
 } from './issuanceTypes.js';
+
+export type { PendingIssuanceRecord, PendingIssuanceStore } from './pendingIssuanceStore.js';

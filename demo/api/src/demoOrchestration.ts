@@ -20,7 +20,7 @@ import { demoStorageMode, requireMktd03CanisterId, resolveMktd03CanisterId } fro
 import { getMongoCollection, getMysqlPool, getPostgresPool } from './db/pools.js';
 import { MONGO_COLLECTION, MYSQL_TABLE, POSTGRES_TABLE } from './config.js';
 import { wiredDataForDeletionTarget } from './deletionResolve.js';
-import { deleteRecordByHandle, insertRecord, recordAbsentForTarget } from './store.js';
+import { demoPendingIssuanceStore } from './pendingIssuanceStore.js';
 
 function resolveMktd03IcHost(): string {
   return (process.env.MKTD03_IC_HOST?.trim() || 'https://icp-api.io').replace(/\/$/, '');
@@ -148,6 +148,7 @@ export async function orchestratedDelete(params: OrchestratedDeleteParams) {
       trustedBackendPublicKeyHex: params.trustedBackendPublicKeyHex,
       skipPreflight: params.skipPreflight,
       audit: params.audit,
+      pendingIssuanceStore: demoPendingIssuanceStore,
     },
   });
 }

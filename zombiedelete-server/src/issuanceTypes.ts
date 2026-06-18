@@ -33,4 +33,6 @@ export type IssueAttestedDeletionReceiptParams = {
   skipPreflight?: boolean;
   audit?: Omit<DeletionAuditMetadata, 'extensions'>;
   onProgress?: (progress: IssuanceProgress) => void;
+  /** Persist pending_id after begin so finalize can be retried after a crash. */
+  pendingIssuanceStore?: import('./pendingIssuanceStore.js').PendingIssuanceStore;
 };
