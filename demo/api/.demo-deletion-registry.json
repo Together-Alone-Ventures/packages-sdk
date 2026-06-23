@@ -2,7 +2,8 @@
   "deletionsByCanister": {
     "yudas-zqaaa-aaaad-agtsa-cai": [
       "mysql:mysql/customer_pii/email/anna.kowalska-at-example.com",
-      "mysql:mysql/customer_pii/email/marcus.nowak-at-roundtable.demo"
+      "mysql:mysql/customer_pii/email/marcus.nowak-at-roundtable.demo",
+      "mysql:mysql/customer_pii/email/glen-at-exemple.com"
     ]
   }
 }
